@@ -1100,7 +1100,7 @@ export const prepareReceiptData = (
   });
 
   return {
-    invoiceNumber: response?.order_id || response?.order_number,
+    invoiceNumber: response?.order_number || response?.order_id,
     serviceFees: Number(response?.service_fees || response?.service_fee || 0),
     serviceTitle: response?.service_fees_title,
     table_number:
