@@ -61,7 +61,7 @@ export default function AllOrders() {
         fetchFakeOrders(appliedDateFrom, appliedDateTo);
       }
     }
-  }, [currentPage]);
+  }, [currentPage, appliedSearch, appliedDateFrom, appliedDateTo]);
 
   const fetchNormalOrders = async (page = 1, search = "", dateFrom = "", dateTo = "") => {
     try {
@@ -136,22 +136,17 @@ export default function AllOrders() {
 
   // عند الضغط على زر البحث
   const handleSearch = () => {
-    // حفظ القيم المطبقة
-    setAppliedSearch(searchInput);
-    setAppliedDateFrom(dateFromInput);
-    setAppliedDateTo(dateToInput);
-    setCurrentPage(1);
-
     if (isFakeMode) {
       if (!dateFromInput || !dateToInput) {
         toast.warning(t("PleaseSelectDateRange"));
         return;
       }
-      fetchFakeOrders(dateFromInput, dateToInput);
-    } else {
-      // البحث عبر الخادم
-      fetchNormalOrders(1, searchInput, dateFromInput, dateToInput);
     }
+    // حفظ القيم المطبقة
+    setAppliedSearch(searchInput);
+    setAppliedDateFrom(dateFromInput);
+    setAppliedDateTo(dateToInput);
+    setCurrentPage(1);
   };
   // Handle Void Click
   const handleVoidClick = (order) => {
@@ -534,7 +529,11 @@ export default function AllOrders() {
                     : "Search by order number, name, or phone..."
                 }
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(e) => {
+                  setSearchInput(e.target.value);
+                  setAppliedSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
               />
             </div>
 
@@ -545,7 +544,11 @@ export default function AllOrders() {
               <Input
                 type="date"
                 value={dateFromInput}
-                onChange={(e) => setDateFromInput(e.target.value)}
+                onChange={(e) => {
+                  setDateFromInput(e.target.value);
+                  setAppliedDateFrom(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="w-40"
               />
             </div>
@@ -557,20 +560,15 @@ export default function AllOrders() {
               <Input
                 type="date"
                 value={dateToInput}
-                onChange={(e) => setDateToInput(e.target.value)}
+                onChange={(e) => {
+                  setDateToInput(e.target.value);
+                  setAppliedDateTo(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="w-40"
               />
             </div>
 
-            <Button
-              onClick={handleSearch}
-              disabled={getLoading || loading}
-              className="px-6"
-            >
-              {getLoading || loading
-                ? t("Searching")
-                : t("Search")}
-            </Button>
           </div>
 
 
