@@ -1,5 +1,8 @@
 import { getCurrencySymbol } from '../../utils/currency';
 import { useTranslation } from "react-i18next";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { toast } from "react-toastify";
 
 const CustomerSelectionModal = ({
   isOpen,

@@ -34,6 +34,10 @@ export default function AllOrders() {
   const [appliedDateFrom, setAppliedDateFrom] = useState("");
   const [appliedDateTo, setAppliedDateTo] = useState("");
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
   // Void Modal States
   const [showVoidModal, setShowVoidModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -50,28 +54,25 @@ export default function AllOrders() {
   const { refetch, loading: getLoading } = useGet();
 
   useEffect(() => {
-    if (isFakeMode || orders.length === 0) return;
+    if (!showModal && password) {
+      if (!isFakeMode) {
+        fetchNormalOrders(currentPage, appliedSearch, appliedDateFrom, appliedDateTo);
+      } else {
+        fetchFakeOrders(appliedDateFrom, appliedDateTo);
+      }
+    }
+  }, [currentPage]);
 
-    let filtered = orders.filter((order) => {
-      const orderDateStr = order.created_at || order.date || "";
-      const orderDate = orderDateStr.split("T")[0];
-
-      const dateMatch =
-        (!dateFromInput || orderDate >= dateFromInput) &&
-        (!dateToInput || orderDate <= dateToInput);
-
-      return dateMatch;
-    });
-
-    // تطبيق الفلترة النصية
-    filtered = applyTextFilter(filtered);
-
-    setDisplayedOrders(filtered);
-  }, [searchInput, dateFromInput, dateToInput, orders, isFakeMode]);
-
-  const fetchNormalOrders = async () => {
+  const fetchNormalOrders = async (page = 1, search = "", dateFrom = "", dateTo = "") => {
     try {
-      const res = await postData("cashier/orders/point_of_sale", { password });
+      const res = await postData("cashier/orders/point_of_sale", { 
+        password,
+        page,
+        limit: 10,
+        search,
+        date_from: dateFrom,
+        date_to: dateTo
+      });
       console.log(res?.orders);
 
       if (res?.orders) {
@@ -81,15 +82,21 @@ export default function AllOrders() {
           const fakeData = res.orders || [];
           setFakeOrders(fakeData);
           setDisplayedOrders(fakeData);  // هنا هتعرض في الجدول فورًا
-          toast.info(t("OrdersModeActivated"));
+          if(res.pagination) {
+            setTotalPages(res.pagination.last_page);
+          }
+          if (page === 1) toast.info(t("OrdersModeActivated"));
         } else {
           setIsFakeMode(false);
           setOrders(res.orders);
-          setDisplayedOrders(res.orders);  // زي ما هو
+          setDisplayedOrders(res.orders);  // نعرض الطلبات من الخادم مباشرة
+          if(res.pagination) {
+            setTotalPages(res.pagination.last_page);
+          }
         }
 
         setShowModal(false);
-        toast.success(t("Accessgrantedsuccessfully"));
+        if (page === 1) toast.success(t("Accessgrantedsuccessfully"));
       } else {
         toast.error(t("Incorrectpassword"));
       }
@@ -133,6 +140,7 @@ export default function AllOrders() {
     setAppliedSearch(searchInput);
     setAppliedDateFrom(dateFromInput);
     setAppliedDateTo(dateToInput);
+    setCurrentPage(1);
 
     if (isFakeMode) {
       if (!dateFromInput || !dateToInput) {
@@ -141,21 +149,8 @@ export default function AllOrders() {
       }
       fetchFakeOrders(dateFromInput, dateToInput);
     } else {
-      // الوضع العادي: فلترة محلية
-      let filtered = orders.filter((order) => {
-        const orderDate = (order.created_at || "").split("T")[0];
-
-        const dateMatch =
-          (!dateFromInput || orderDate >= dateFromInput) &&
-          (!dateToInput || orderDate <= dateToInput);
-
-        return dateMatch;
-      });
-
-      // تطبيق الفلترة النصية
-      filtered = applyTextFilter(filtered);
-
-      setDisplayedOrders(filtered);
+      // البحث عبر الخادم
+      fetchNormalOrders(1, searchInput, dateFromInput, dateToInput);
     }
   };
   // Handle Void Click
@@ -173,7 +168,7 @@ export default function AllOrders() {
           await fetchFakeOrders(appliedDateFrom, appliedDateTo);
         }
       } else {
-        await fetchNormalOrders();
+        await fetchNormalOrders(currentPage, appliedSearch, appliedDateFrom, appliedDateTo);
       }
       toast.success(t("Ordersrefreshedsuccessfully"));
     } catch (err) {
@@ -710,6 +705,29 @@ export default function AllOrders() {
                 ? t("NoOrdersFoundClickSearch")
                 : t("NoOrdersMatchFilters")}
             </p>
+          )}
+
+          {/* Pagination Controls */}
+          {displayedOrders.length > 0 && totalPages > 1 && (
+            <div className="flex justify-center items-center gap-4 mt-6">
+              <Button
+                variant="outline"
+                disabled={currentPage === 1 || loading}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              >
+                {t("Previous")}
+              </Button>
+              <span className="text-sm text-gray-600">
+                {t("Page")} {currentPage} {t("of")} {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                disabled={currentPage === totalPages || loading}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              >
+                {t("Next")}
+              </Button>
+            </div>
           )}
 
         </>
