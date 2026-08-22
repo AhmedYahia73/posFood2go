@@ -184,7 +184,7 @@ const Dine = () => {
   const [pendingTableSelection, setPendingTableSelection] = useState(null);
   const [handleSplitFromActions, setHandleSplitFromActions] = useState(null);
   const { data, isLoading, error, refetch } = useGet(
-    `captain/lists?branch_id=${branch_id}&module=${orderType}`
+    `captain/cafe_locations?branch_id=${branch_id}`
   );
   const { loading: transferLoading, postData } = usePost();
   const { postData: postPreparationNum, loading: preparationLoading } = usePost();

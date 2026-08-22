@@ -154,50 +154,84 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
     }
   }, [isNormalPrice, selectedGroup]);
 
-
-  // Removed favouriteCategoriesData fetch based on user request to only change cart prices
-
-  // 3. جلب البيانات الأساسية
-  const allModulesEndpoint = useMemo(() => {
-    return `captain/lists?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}`;
-  }, [branchIdState, i18n.language, orderType]);
-  const { data: allModulesData, isLoading: isAllDataLoading } = useQuery({
-    queryKey: ["allData", branchIdState, i18n.language, orderType],
-    queryFn: () => apiFetcher(allModulesEndpoint),
+    // ── Query 1: Categories + Offers + Discounts ────────────────────────────────────────────
+  const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
+    queryKey: ["categories", branchIdState, i18n.language],
+    queryFn: () => apiFetcher(`captain/categories?branch_id=${branchIdState}&locale=${i18n.language}`),
     enabled: !!branchIdState,
+    staleTime: 5 * 60 * 1000,
+  });
+  const finalCategories = useMemo(() => categoriesData?.categories || [], [categoriesData]);
+
+  const { data: offersDataRes, isLoading: offersLoading } = useQuery({
+    queryKey: ["offersData", i18n.language, orderType],
+    queryFn: () => apiFetcher(`captain/offers?locale=${i18n.language}&module=${orderType}`),
     staleTime: 0,
     gcTime: 0,
-    refetchOnMount: true,
   });
 
-  const finalCategories = useMemo(() => {
-    return allModulesData?.categories || [];
-  }, [allModulesData]);
-
-  const favouriteProducts = useMemo(() => {
-    if (!allModulesData) return [];
-    return productType === "weight"
-      ? allModulesData.favourite_products_weight || []
-      : allModulesData.favourite_products || [];
-  }, [allModulesData, productType]);
-
-  const allProducts = useMemo(() => {
-    if (!allModulesData) return [];
-    return productType === "weight"
-      ? allModulesData?.products_weight || []
-      : allModulesData?.products || [];
-  }, [allModulesData, productType]);
-
   const currentOffers = useMemo(() => {
-    if (!allModulesData) return [];
-    if (orderType === "take_away") return allModulesData.offers_take_away || [];
-    if (orderType === "dine_in") return allModulesData.offers_dine_id || [];
-    if (orderType === "delivery") return allModulesData.offers_delivery || [];
-    return [];
-  }, [allModulesData, orderType]);
+    return offersDataRes?.offers || [];
+  }, [offersDataRes]);
 
-  const allSubCategories = useMemo(() => {
-    return finalCategories.flatMap((cat) =>
+  // ── Debounced search state ──────────────────────────────────────────────
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // ── Query: Search Products ──────────────────────────────
+  const { data: searchData, isLoading: searchLoading } = useQuery({
+    queryKey: ["searchProducts", branchIdState, i18n.language, orderType, debouncedSearch],
+    queryFn: () => apiFetcher(`captain/search_products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}&search=${encodeURIComponent(debouncedSearch)}`),
+    enabled: !!branchIdState && !!debouncedSearch.trim(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const searchedProducts = useMemo(() => {
+    if (!searchData) return [];
+    return productType === "weight" ? (searchData.products_weight || []) : (searchData.products || []);
+  }, [searchData, productType]);
+  
+    const { data: favouriteData, isLoading: favouriteLoading } = useQuery({
+      queryKey: ["favouriteProducts", branchIdState, i18n.language, orderType],
+      queryFn: () => apiFetcher(`captain/favourite_products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}`),
+      enabled: !!branchIdState,
+      staleTime: 0,
+      gcTime: 0,
+    });
+  
+    const isSpecificCategory = selectedMainCategory !== "all" && selectedMainCategory !== "favorite";
+    const categoryProductsKey = isSpecificCategory ? selectedMainCategory : "_all_";
+    const { data: categoryProductsData, isLoading: categoryProductsLoading } = useQuery({
+      queryKey: ["categoryProducts", branchIdState, i18n.language, orderType, categoryProductsKey],
+      queryFn: () => {
+        const base = `captain/products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}`;
+        const url = isSpecificCategory ? `${base}&category_id=${selectedMainCategory}` : base;
+        return apiFetcher(url);
+      },
+      enabled: !!branchIdState && selectedMainCategory !== "favorite",
+      staleTime: 0,
+      gcTime: 0,
+    });
+  
+    const favouriteProducts = useMemo(() => {
+      if (!favouriteData) return [];
+      return productType === "weight"
+        ? favouriteData.favourite_products_weight || []
+        : favouriteData.favourite_products || [];
+    }, [favouriteData, productType]);
+  
+    const allProducts = useMemo(() => {
+      if (!categoryProductsData) return [];
+      return productType === "weight"
+        ? categoryProductsData?.products_weight || []
+        : categoryProductsData?.products || [];
+    }, [categoryProductsData, productType]);
+  
+    const allSubCategories = useMemo(() => {
+      return finalCategories.flatMap((cat) =>
       (cat.sub_categories || []).map((sub) => ({
         ...sub,
         main_category_id: cat.id,
@@ -210,24 +244,19 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
   const filteredProducts = useMemo(() => {
     let products = [];
 
-    // 1. لو في بحث (سكان) → نبحث في كل المنتجات بغض النظر عن الـ category
-    if (searchQuery.trim()) {
-      const query = searchQuery.trim().toLowerCase();
-      return allProducts.filter(
-        (p) =>
-          (p.name?.toLowerCase() || "").includes(query) ||
-          (p.product_code?.toString().toLowerCase() || "").includes(query)
-      );
+    // 1. لو في بحث (بندور في كل المنتجات)
+    if (debouncedSearch.trim()) {
+      return searchedProducts;
     }
 
-    // 2. حدد الليست الأساسية
+    // 2. المفضلة
     if (selectedMainCategory === "favorite" || selectedGroup === "all") {
       products = favouriteProducts;
     } else {
       products = allProducts;
     }
 
-    // 3. فلتر حسب الـ category/sub
+    // 3. تصنيف فرعي او رئيسي
     if (selectedMainCategory !== "all" && selectedMainCategory !== "favorite") {
       products = products.filter((p) => p.category_id === parseInt(selectedMainCategory));
     }
@@ -241,7 +270,8 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
     favouriteProducts,
     selectedMainCategory,
     selectedSubCategory,
-    searchQuery,
+    debouncedSearch,
+    searchedProducts,
     isNormalPrice,
     selectedGroup,
   ]);
@@ -461,16 +491,15 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
     [orderType, onAddToOrder, postOrder, t, selectedGroup, productType, openProductModal]// أضيفي selectedGroup هنا للمراقبة
   );
 
-  if (
-    groupLoading ||
-    isAllDataLoading
-  ) {
-    return (
+    if (
+      groupLoading ||
+      categoriesLoading || favouriteLoading || categoryProductsLoading || offersLoading
+    ) {
+      return (
       <div className="flex justify-center items-center h-40">
         <Loading />
       </div>
     );
-
   }
   const parseWeightBarcode = (barcode) => {
     // التأكد إن الباركود 13 رقم ويبدأ بـ رقم 2
