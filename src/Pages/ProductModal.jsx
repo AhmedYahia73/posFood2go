@@ -94,7 +94,7 @@ const ProductModal = ({
       if (v.type === "single") {
         // ✅ الـ single ممكن يبقى شكله { optionId, value } لو كان بالوزن
         const selectedOptionId = typeof selected === "object" ? selected.optionId : selected;
-        const opt = v.options.find((o) => o.id === selectedOptionId);
+        const opt = v.options.find((o) => String(o.id) === String(selectedOptionId));
         if (opt) {
           const isWeightOption =
             v.weight === 1 || v.weight === "1" || opt.weight === 1 || opt.weight === "1";
@@ -113,10 +113,10 @@ const ProductModal = ({
           let opt, quantity = 1;
 
           if (item && typeof item === 'object') {
-            opt = v.options.find((o) => o.id === item.optionId);
+            opt = v.options.find((o) => String(o.id) === String(item.optionId));
             quantity = item.value || 1;
           } else {
-            opt = v.options.find((o) => o.id === item);
+            opt = v.options.find((o) => String(o.id) === String(item));
           }
 
           if (opt) {
@@ -134,7 +134,7 @@ const ProductModal = ({
   // إضافة الـ extras
   let extraPrice = 0;
   selectedExtras.forEach(id => {
-    const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(e => e.id === parseInt(id));
+    const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(e => String(e.id) === String(id));
     if (extra) {
       extraPrice += parseFloat(extra.final_price || extra.price || 0);
     }
@@ -151,7 +151,7 @@ const ProductModal = ({
 
       if (v.type === "single") {
         const selectedOptionId = typeof selected === "object" ? selected.optionId : selected;
-        const opt = v.options.find((o) => o.id === selectedOptionId);
+        const opt = v.options.find((o) => String(o.id) === String(selectedOptionId));
         if (opt) {
           const isWeightOption = v.weight === 1 || v.weight === "1" || opt.weight === 1 || opt.weight === "1";
           if (isWeightOption) {
@@ -167,10 +167,10 @@ const ProductModal = ({
         selected.forEach((item) => {
           let opt, quantity = 1;
           if (item && typeof item === 'object') {
-            opt = v.options.find((o) => o.id === item.optionId);
+            opt = v.options.find((o) => String(o.id) === String(item.optionId));
             quantity = item.value || 1;
           } else {
-            opt = v.options.find((o) => o.id === item);
+            opt = v.options.find((o) => String(o.id) === String(item));
           }
           if (opt) {
             variationTax += parseFloat(opt.tax_val || 0) * quantity;
@@ -183,7 +183,7 @@ const ProductModal = ({
   // إضافة ضريبة الـ extras والـ addons
   let extraTax = 0;
   selectedExtras.forEach(id => {
-    const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(e => e.id === parseInt(id));
+    const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(e => String(e.id) === String(id));
     if (extra) {
       const taxVal = parseFloat(extra.tax_val || ((parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)) - parseFloat(extra.price || 0)));
       extraTax += taxVal > 0 ? taxVal : 0;

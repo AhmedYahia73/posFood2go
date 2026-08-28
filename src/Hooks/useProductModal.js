@@ -233,7 +233,7 @@ export const useProductModal = () => {
         if (v.type === "single") {
           // ✅ الـ single ممكن يبقى شكله { optionId, value } لو كان بالوزن
           const selectedOptionId = typeof selected === "object" ? selected.optionId : selected;
-          const opt = v.options.find((o) => o.id === selectedOptionId);
+          const opt = v.options.find((o) => String(o.id) === String(selectedOptionId));
           if (opt) {
             const isWeightOption =
               v.weight === 1 || v.weight === "1" || opt.weight === 1 || opt.weight === "1";
@@ -241,9 +241,6 @@ export const useProductModal = () => {
             if (isWeightOption) {
               const enteredWeight = typeof selected === "object" ? parseFloat(selected.value) || 0 : 0;
               variationCharges += parseFloat(opt.price || 0) * enteredWeight;
-            } else if (opt.total_option_price > 0) {
-              // إذا كان خيار حجم يغير السعر الأساسي
-              currentPrice = parseFloat(opt.total_option_price);
             } else {
               variationCharges += parseFloat(opt.final_price || opt.price || 0);
             }
@@ -253,12 +250,10 @@ export const useProductModal = () => {
             let opt, quantity = 1;
 
             if (item && typeof item === 'object') {
-              // للمتغيرات بالوزن
-              opt = v.options.find((o) => o.id === item.optionId);
+              opt = v.options.find((o) => String(o.id) === String(item.optionId));
               quantity = item.value || 1;
             } else {
-              // للمتغيرات العادية
-              opt = v.options.find((o) => o.id === item);
+              opt = v.options.find((o) => String(o.id) === String(item));
             }
 
             if (opt) {
@@ -275,12 +270,15 @@ export const useProductModal = () => {
       });
     }
 
-    // حساب الـ Extras الخارجية
+    // حساب الـ extras والـ addons باستخدام strict string comparison
     let extraCharges = 0;
     selectedExtras.forEach((id) => {
-      const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])]
-        .find((e) => e.id === parseInt(id));
-      if (extra) extraCharges += parseFloat(extra.final_price || extra.price || 0);
+      const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(
+        (e) => String(e.id) === String(id)
+      );
+      if (extra) {
+        extraCharges += parseFloat(extra.final_price || extra.price || 0);
+      }
     });
 
     const isWeightProduct = selectedProduct.weight_status === 1 || selectedProduct.is_weight;
