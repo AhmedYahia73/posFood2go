@@ -140,20 +140,78 @@ const ProductModal = ({
     }
   });
 
+  // حساب ضريبة الـ variations
+  let baseTax = parseFloat(selectedProduct.tax_only || selectedProduct.tax_val || 0);
+  let variationTax = 0;
+  
+  if (selectedProduct.variations) {
+    selectedProduct.variations.forEach((v) => {
+      const selected = selectedVariation[v.id];
+      if (!selected) return;
+
+      if (v.type === "single") {
+        const selectedOptionId = typeof selected === "object" ? selected.optionId : selected;
+        const opt = v.options.find((o) => o.id === selectedOptionId);
+        if (opt) {
+          const isWeightOption = v.weight === 1 || v.weight === "1" || opt.weight === 1 || opt.weight === "1";
+          if (isWeightOption) {
+            const enteredWeight = typeof selected === "object" ? parseFloat(selected.value) || 0 : 0;
+            variationTax += parseFloat(opt.tax_val || 0) * enteredWeight;
+          } else if (opt.total_option_price > 0) {
+            baseTax = parseFloat(opt.tax_val || 0);
+          } else {
+            variationTax += parseFloat(opt.tax_val || 0);
+          }
+        }
+      } else if (v.type === "multiple" && Array.isArray(selected)) {
+        selected.forEach((item) => {
+          let opt, quantity = 1;
+          if (item && typeof item === 'object') {
+            opt = v.options.find((o) => o.id === item.optionId);
+            quantity = item.value || 1;
+          } else {
+            opt = v.options.find((o) => o.id === item);
+          }
+          if (opt) {
+            variationTax += parseFloat(opt.tax_val || 0) * quantity;
+          }
+        });
+      }
+    });
+  }
+
+  // إضافة ضريبة الـ extras والـ addons
+  let extraTax = 0;
+  selectedExtras.forEach(id => {
+    const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(e => e.id === parseInt(id));
+    if (extra) {
+      const taxVal = parseFloat(extra.tax_val || ((parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)) - parseFloat(extra.price || 0)));
+      extraTax += taxVal > 0 ? taxVal : 0;
+    }
+  });
+
   let unitPrice = 0;
   let totalPrice = 0;
+  let unitTax = 0;
+  let totalTax = 0;
   const finalQuantity = parseFloat(quantity) || 0;
 
   if (isWeightProduct) {
     // بالنسبة لمنتجات الوزن: الإضافات والمتغيرات تُحسب قيمتها كإجمالي مستقل ولا تُضرب في كمية المنتج مرة أخرى
     const totalVariationAndExtra = variationPrice + extraPrice;
     totalPrice = (basePrice * finalQuantity) + totalVariationAndExtra;
-    // حساب سعر الوحدة ليُرسل للسلة (إجمالي السعر ÷ الكمية)
     unitPrice = finalQuantity > 0 ? (totalPrice / finalQuantity) : basePrice;
+    
+    const totalVariationAndExtraTax = variationTax + extraTax;
+    totalTax = (baseTax * finalQuantity) + totalVariationAndExtraTax;
+    unitTax = finalQuantity > 0 ? (totalTax / finalQuantity) : baseTax;
   } else {
     // للمنتجات بالقطعة: المتغيرات والإضافات تطبق على كل قطعة
     unitPrice = basePrice + variationPrice + extraPrice;
     totalPrice = unitPrice * finalQuantity;
+    
+    unitTax = baseTax + variationTax + extraTax;
+    totalTax = unitTax * finalQuantity;
   }
 
   const hasVariations =
@@ -741,7 +799,7 @@ const ProductModal = ({
 
                   // إضافة discount_val و tax_only بشكل صريح
                   discount_val: parseFloat(selectedProduct.discount_val || 0),
-                  tax_only: parseFloat(selectedProduct.tax_only || 0),
+                  tax_only: unitTax,
 
                   // نحفظ الـ catalog الكامل للـ addons عشان نقدر نسترجعه لاحقاً
                   addons_list: selectedProduct.addons_list || selectedProduct.addons || [],

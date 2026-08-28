@@ -22,7 +22,7 @@ export function useOrderCalculations(
         selectedExtras.forEach(id => {
           const extra = allExtrasCatalog.find(e => String(e.id) === String(id));
           if (extra) {
-            extraPrice += parseFloat(extra.price || extra.final_price || 0);
+            extraPrice += parseFloat(extra.final_price || extra.price || 0);
           }
         });
       }
@@ -68,7 +68,7 @@ export function useOrderCalculations(
           optionsList.forEach(opt => {
             const optionData = variationGroup.options?.find(o => String(o.id) === String(opt.id));
             if (optionData) {
-              const optPrice = parseFloat(optionData.price || optionData.additional_price || optionData.final_price || 0);
+              const optPrice = parseFloat(optionData.final_price || optionData.price || optionData.additional_price || 0);
               extraPrice += (optPrice * opt.weight); // مثال: 65 * 1.75 = 113.75
             }
           });
