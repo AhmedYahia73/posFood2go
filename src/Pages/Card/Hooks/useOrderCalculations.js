@@ -78,6 +78,69 @@ export function useOrderCalculations(
       return extraPrice;
     };
 
+    // --- دالة مساعدة لحساب ضرائب جميع الإضافات ---
+    const calculateExtraTax = (item) => {
+      let extraTax = 0;
+
+      // 1. حساب ضريبة الـ extras
+      const selectedExtras = item.selectedExtras || [];
+      if (selectedExtras.length > 0) {
+        const allExtrasCatalog = item.allExtras || [];
+        selectedExtras.forEach(id => {
+          const extra = allExtrasCatalog.find(e => String(e.id) === String(id));
+          if (extra) {
+            extraTax += parseFloat(extra.tax_val || extra.tax_only || 0);
+          }
+        });
+      }
+
+      // 2. حساب ضريبة الـ addons
+      const storedAddons = item.addons || [];
+      storedAddons.forEach(addon => {
+        if (addon.addon_id !== undefined) {
+          const addonQty = parseFloat(addon.quantity || addon.count || 1);
+          extraTax += parseFloat(addon.tax_val || addon.tax_only || 0) * addonQty;
+        }
+      });
+
+      // 3. حساب ضريبة الـ Variations بناءً على selectedVariation
+      const selectedVariation = item.selectedVariation;
+      const variations = item.variations || [];
+
+      if (selectedVariation && typeof selectedVariation === 'object') {
+        Object.entries(selectedVariation).forEach(([variationId, selectedValue]) => {
+          const variationGroup = variations.find(v => String(v.id) === String(variationId));
+          if (!variationGroup) return;
+
+          let optionsList = [];
+
+          if (Array.isArray(selectedValue)) {
+            selectedValue.forEach(val => {
+              if (val && typeof val === 'object' && val.optionId) {
+                optionsList.push({ id: val.optionId, weight: parseFloat(val.value || 1) });
+              } else {
+                optionsList.push({ id: val, weight: 1 });
+              }
+            });
+          } else if (selectedValue && typeof selectedValue === 'object' && selectedValue.optionId !== undefined) {
+            optionsList.push({ id: selectedValue.optionId, weight: parseFloat(selectedValue.value || 0) });
+          } else {
+            optionsList.push({ id: selectedValue, weight: 1 });
+          }
+
+          optionsList.forEach(opt => {
+            const optionData = variationGroup.options?.find(o => String(o.id) === String(opt.id));
+            if (optionData) {
+              const optTax = parseFloat(optionData.tax_val || optionData.tax_only || 0);
+              extraTax += (optTax * opt.weight);
+            }
+          });
+        });
+      }
+
+      return extraTax;
+    };
+
     // ── Subtotal Calculation ───────────────────────────────────────────
     const subTotal = items.reduce((sum, item) => {
       // الاعتماد على السعر الأساسي الصافي
@@ -110,7 +173,8 @@ export function useOrderCalculations(
       totalDiscount += itemDiscount * qty;
 
       const itemTax = Number(item.tax_only || 0);
-      const totalItemTax = itemTax * qty;
+      const extraTax = calculateExtraTax(item);
+      const totalItemTax = (itemTax + extraTax) * qty;
       totalTax += totalItemTax;
 
       if (totalItemTax > 0 && item.tax_obj) {
@@ -187,7 +251,8 @@ export function useOrderCalculations(
           ? Number(i.quantity || 1)
           : Number(i.count || 1);
         const itemTax = Number(i.tax_only || 0);
-        return s + (itemTax * qty);
+        const extraTax = calculateExtraTax(i);
+        return s + ((itemTax + extraTax) * qty);
       }, 0);
 
       let selSF = applySF

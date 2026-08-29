@@ -553,14 +553,14 @@ export default function OrderSummary({
   // let apiTotalDiscount = 0;
   // let totalTax = 0;
 
-  orderItems.forEach(item => {
-    const qty = (item.weight_status === 1 || item.weight_status === "1")
-      ? Number(item.quantity || 0)
-      : Number(item.count || item.quantity || 1);
+  // orderItems.forEach(item => {
+  //   const qty = (item.weight_status === 1 || item.weight_status === "1")
+  //     ? Number(item.quantity || 0)
+  //     : Number(item.count || item.quantity || 1);
 
-    apiTotalDiscount += (item.discount_val || item.discount || 0) * qty;
-    totalTax += (item.tax_only || item.tax || 0) * qty;
-  });
+  //   apiTotalDiscount += (item.discount_val || item.discount || 0) * qty;
+  //   totalTax += (item.tax_only || item.tax || 0) * qty;
+  // });
 
   const realServiceFee = (serviceFeeData && ["dine_in", "take_away"].includes(orderType))
     ? (serviceFeeData.type === "precentage"
