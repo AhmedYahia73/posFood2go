@@ -1137,6 +1137,64 @@ export const prepareReceiptData = (
         (price * qty)
       );
 
+      // Normalize variations: backend sends { variation: "Name", options: ["str1","str2"] }
+      const rawVariations = item.variations || item.variation_selected || productObj.variations || [];
+      const variations = Array.isArray(rawVariations)
+        ? rawVariations.map((g) => {
+            let opts = [];
+            if (g.selected_option_id) {
+              const sIds = Array.isArray(g.selected_option_id) ? g.selected_option_id : [g.selected_option_id];
+              opts = sIds.map((sid) => {
+                const opt = (g.options || []).find((o) => String(o.id) === String(sid));
+                return opt ? { name: opt.name, price: opt.price } : { name: String(sid) };
+              });
+            } else if (Array.isArray(g.options)) {
+              opts = g.options.map((o) => (typeof o === "object" ? o : { name: o }));
+            }
+            return {
+              name: g.name || g.variation || "",
+              options: opts,
+            };
+          }).filter((v) => v.options && v.options.length > 0)
+        : [];
+
+      // Normalize addons:
+      const rawAddons = item.addons || productObj.addons || [];
+      const addons = Array.isArray(rawAddons)
+        ? rawAddons.filter((a) => a.selected || a.quantity > 0 || a.count > 0 || !a.hasOwnProperty("selected")).map((a) => ({
+            id: a.addon_id || a.id,
+            name: a.name || item.addons_list?.find((l) => String(l.id) === String(a.addon_id || a.id))?.name || (typeof a === "string" ? a : ""),
+            price: Number(a.price || a.total || 0),
+            count: Number(a.count || a.quantity || a.qty || 1),
+          }))
+        : [];
+
+      // Normalize extras: support selectedExtras + allExtras, or direct item.extras
+      let extras = [];
+      if (Array.isArray(item.extras) && item.extras.length > 0) {
+        extras = item.extras.map((ex) => (typeof ex === "object" ? ex : { name: ex }));
+      } else if (Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0) {
+        extras = item.selectedExtras.map((exId) => {
+          const found = (item.allExtras || []).find((e) => String(e.id) === String(exId));
+          return { id: exId, name: found?.name || `Extra #${exId}`, price: Number(found?.final_price || found?.price || 0) };
+        });
+      } else if (Array.isArray(productObj.extras) && productObj.extras.length > 0) {
+        extras = productObj.extras.map((ex) => (typeof ex === "object" ? ex : { name: ex }));
+      }
+
+      // Normalize excludes: support selectedExcludes + excludes, or direct item.excludes
+      let excludes = [];
+      if (Array.isArray(item.selectedExcludes) && item.selectedExcludes.length > 0) {
+        excludes = item.selectedExcludes.map((exId) => {
+          const found = (item.excludes || []).find((e) => String(e.id) === String(exId));
+          return { id: exId, name: found?.name || (typeof exId === "object" ? exId.name : `Exclude #${exId}`) };
+        });
+      } else if (Array.isArray(item.excludes) && item.excludes.length > 0) {
+        excludes = item.excludes.map((exc) => (typeof exc === "object" ? exc : { name: exc }));
+      } else if (Array.isArray(productObj.excludes) && productObj.excludes.length > 0) {
+        excludes = productObj.excludes.map((exc) => (typeof exc === "object" ? exc : { name: exc }));
+      }
+
       return {
         qty,
         name,
@@ -1144,13 +1202,13 @@ export const prepareReceiptData = (
         nameEn,
         price,
         total,
-        notes: item.notes || productObj.notes || "",
+        notes,
         category_id: item.category_id || productObj.category_id,
         id: item.id || item.product_id || productObj.id,
-        addons: item.addons || productObj.addons || [],
-        extras: item.extras || productObj.extras || [],
-        excludes: item.excludes || productObj.excludes || [],
-        variations: item.variations || productObj.variations || [],
+        addons,
+        extras,
+        excludes,
+        variations,
       };
     }),
     customer: response?.customer || null,
