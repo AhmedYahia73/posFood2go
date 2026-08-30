@@ -131,12 +131,20 @@ const ProductModal = ({
     });
   }
 
+  const isTaxIncluded = 
+    selectedProduct.taxes === "included" || 
+    selectedProduct.taxes?.setting === "included" || 
+    selectedProduct.tax_obj?.setting === "included";
+
   // إضافة الـ extras
   let extraPrice = 0;
   selectedExtras.forEach(id => {
     const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(e => String(e.id) === String(id));
     if (extra) {
-      extraPrice += parseFloat(extra.final_price || extra.price || 0);
+      const priceToUse = isTaxIncluded
+        ? parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)
+        : parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+      extraPrice += priceToUse;
     }
   });
 
@@ -185,7 +193,10 @@ const ProductModal = ({
   selectedExtras.forEach(id => {
     const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(e => String(e.id) === String(id));
     if (extra) {
-      const taxVal = parseFloat(extra.tax_val || ((parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)) - parseFloat(extra.price || 0)));
+      let taxVal = parseFloat(extra.tax_val || extra.tax_only || 0);
+      if (!taxVal && extra.price_after_tax && extra.price) {
+        taxVal = Math.max(0, parseFloat(extra.price_after_tax) - parseFloat(extra.price));
+      }
       extraTax += taxVal > 0 ? taxVal : 0;
     }
   });
@@ -593,13 +604,18 @@ const ProductModal = ({
                             {extra.name}
                           </span>
                           <div className="text-xs text-gray-500">
-                            {extra.price > 0
-                              ? `+${(
-                                extra.final_price ??
-                                extra.price ??
-                                0
-                              ).toFixed(2)} ${getCurrencySymbol()}`
-                              : t("Free")}
+                            {(() => {
+                              const isIncluded = 
+                                selectedProduct.taxes === "included" || 
+                                selectedProduct.taxes?.setting === "included" || 
+                                selectedProduct.tax_obj?.setting === "included";
+                              const displayPrice = isIncluded
+                                ? parseFloat(extra.final_price ?? extra.price ?? 0)
+                                : parseFloat(extra.price ?? extra.price_after_discount ?? extra.final_price ?? 0);
+                              return displayPrice > 0
+                                ? `+${displayPrice.toFixed(2)} ${getCurrencySymbol()}`
+                                : t("Free");
+                            })()}
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">

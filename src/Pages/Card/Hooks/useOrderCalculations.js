@@ -11,9 +11,23 @@ export function useOrderCalculations(
   return useMemo(() => {
     const items = orderItems ?? [];
 
+    // ── Helper to check if tax is included in price ──────────────────
+    const isTaxIncluded = (item) => {
+      const setting =
+        item?.taxes?.setting ||
+        item?.taxes ||
+        item?.tax_obj?.setting ||
+        item?.tax?.setting ||
+        item?.product?.taxes?.setting ||
+        item?.product?.taxes;
+
+      return setting === "included";
+    };
+
     // --- دالة مساعدة لحساب أسعار جميع الإضافات بناءً على هيكل بياناتك ---
     const calculateExtraPrice = (item) => {
       let extraPrice = 0;
+      const isIncluded = isTaxIncluded(item);
 
       // 1. حساب الـ extras
       const selectedExtras = item.selectedExtras || [];
@@ -22,7 +36,10 @@ export function useOrderCalculations(
         selectedExtras.forEach(id => {
           const extra = allExtrasCatalog.find(e => String(e.id) === String(id));
           if (extra) {
-            extraPrice += parseFloat(extra.final_price || extra.price || 0);
+            const priceToUse = isIncluded
+              ? parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)
+              : parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+            extraPrice += priceToUse;
           }
         });
       }
@@ -36,42 +53,44 @@ export function useOrderCalculations(
         }
       });
 
-      // 3. حساب الـ Variations بناءً على selectedVariation (اللغز اللي كان مفقود)
+      // 3. حساب الـ Variations بناءً على selectedVariation
       const selectedVariation = item.selectedVariation;
       const variations = item.variations || [];
 
       if (selectedVariation && typeof selectedVariation === 'object') {
-        Object.entries(selectedVariation).forEach(([variationId, selectedValue]) => {
-          const variationGroup = variations.find(v => String(v.id) === String(variationId));
-          if (!variationGroup) return;
+        Object.entries(selectedVariation).forEach(([varId, selected]) => {
+          const variation = variations.find((v) => String(v.id) === String(varId));
+          if (!variation) return;
 
-          let optionsList = [];
-
-          // فحص هل القيمة مصفوفة (زي الأوزان [{optionId: 697, value: 1.75}]) أو ID مباشر (زي 698)
-          if (Array.isArray(selectedValue)) {
-            selectedValue.forEach(val => {
-              if (val && typeof val === 'object' && val.optionId) {
-                // استخدم val.value ككمية (وزن) وليس val.weight
-                optionsList.push({ id: val.optionId, weight: parseFloat(val.value || 1) });
+          // Single selection variation
+          if (variation.type === 'single') {
+            const selectedOptionId = typeof selected === 'object' ? selected.optionId : selected;
+            const opt = (variation.options || []).find((o) => String(o.id) === String(selectedOptionId));
+            if (opt) {
+              const isWeightOption = variation.weight === 1 || variation.weight === '1' || opt.weight === 1 || opt.weight === '1';
+              if (isWeightOption) {
+                const enteredWeight = typeof selected === 'object' ? parseFloat(selected.value) || 0 : 0;
+                extraPrice += parseFloat(opt.price || 0) * enteredWeight;
               } else {
-                optionsList.push({ id: val, weight: 1 });
+                extraPrice += parseFloat(opt.price || 0);
+              }
+            }
+          }
+          // Multiple selection variation
+          else if (variation.type === 'multiple' && Array.isArray(selected)) {
+            selected.forEach((selItem) => {
+              let opt, quantity = 1;
+              if (selItem && typeof selItem === 'object') {
+                opt = (variation.options || []).find((o) => String(o.id) === String(selItem.optionId));
+                quantity = parseFloat(selItem.value) || 1;
+              } else {
+                opt = (variation.options || []).find((o) => String(o.id) === String(selItem));
+              }
+              if (opt) {
+                extraPrice += parseFloat(opt.price || 0) * quantity;
               }
             });
-          } else if (selectedValue && typeof selectedValue === 'object' && selectedValue.optionId !== undefined) {
-            // ✅ single بالوزن: { optionId, value } - نفس شكل الـ multiple لكن بدون array
-            optionsList.push({ id: selectedValue.optionId, weight: parseFloat(selectedValue.value || 0) });
-          } else {
-            optionsList.push({ id: selectedValue, weight: 1 });
           }
-
-          // ضرب السعر في الوزن المُدخل (value)
-          optionsList.forEach(opt => {
-            const optionData = variationGroup.options?.find(o => String(o.id) === String(opt.id));
-            if (optionData) {
-              const optPrice = parseFloat(optionData.final_price || optionData.price || optionData.additional_price || 0);
-              extraPrice += (optPrice * opt.weight); // مثال: 65 * 1.75 = 113.75
-            }
-          });
         });
       }
 
@@ -89,7 +108,11 @@ export function useOrderCalculations(
         selectedExtras.forEach(id => {
           const extra = allExtrasCatalog.find(e => String(e.id) === String(id));
           if (extra) {
-            extraTax += parseFloat(extra.tax_val || extra.tax_only || 0);
+            let taxVal = parseFloat(extra.tax_val || extra.tax_only || 0);
+            if (!taxVal && extra.price_after_tax && extra.price) {
+              taxVal = Math.max(0, parseFloat(extra.price_after_tax) - parseFloat(extra.price));
+            }
+            extraTax += taxVal;
           }
         });
       }

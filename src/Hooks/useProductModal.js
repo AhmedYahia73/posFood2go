@@ -272,12 +272,20 @@ export const useProductModal = () => {
 
     // حساب الـ extras والـ addons باستخدام strict string comparison
     let extraCharges = 0;
+    const isTaxIncluded = 
+      selectedProduct.taxes === "included" || 
+      selectedProduct.taxes?.setting === "included" || 
+      selectedProduct.tax_obj?.setting === "included";
+
     selectedExtras.forEach((id) => {
       const extra = [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])].find(
         (e) => String(e.id) === String(id)
       );
       if (extra) {
-        extraCharges += parseFloat(extra.final_price || extra.price || 0);
+        const priceToUse = isTaxIncluded
+          ? parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)
+          : parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+        extraCharges += priceToUse;
       }
     });
 
