@@ -20,9 +20,16 @@ export const buildProductPayload = (item) => {
       price: (addon.price || 0)?.toString()
     }));
 
-  // 3. الـ Extras
+  // 3. الـ Extras - التأكد من استبعاد الـ addons والاحتفاظ فقط بالـ extras الحقيقية
   const extraIds = (item?.selectedExtras || [])
-    .filter(id => id !== undefined)
+    .filter(id => {
+      if (id === undefined || id === null) return false;
+      if ((item?.addons || []).some(a => String(a.addon_id) === String(id))) return false;
+      if (item?.allExtras && item.allExtras.length > 0) {
+        return item.allExtras.some(e => String(e.id) === String(id));
+      }
+      return true;
+    })
     .map(id => id?.toString());
 
   // 4. بناء الـ Payload النهائي

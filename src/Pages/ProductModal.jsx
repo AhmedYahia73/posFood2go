@@ -788,6 +788,7 @@ const ProductModal = ({
                     (selectedProduct.allExtras || []).some(e => e.id === id) ||
                     (selectedProduct.addons || []).some(a => a.id === id)
                   ),
+                  selectedExcludes: selectedExcludes || [],
                   quantity: finalQuantity,
                   notes: notes.trim(),
 

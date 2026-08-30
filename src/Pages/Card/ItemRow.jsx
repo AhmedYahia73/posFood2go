@@ -183,6 +183,22 @@ const ItemRow = ({
       +{item.allExtras?.find(e => e.id === exId)?.name || 'Extra'}
     </span>
   ))}
+
+  {/* 4. عرض الـ Excludes */}
+  {item.selectedExcludes?.map((exId, i) => {
+    const excludeObj = (item.excludes || []).find(e => String(e.id) === String(exId));
+    const excludeName = excludeObj?.name || (typeof exId === 'object' ? exId?.name : null);
+    return excludeName ? (
+      <span key={`exclude-${i}`} className="text-[10px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 whitespace-nowrap">
+        -{excludeName}
+      </span>
+    ) : null;
+  })}
+  {(!item.selectedExcludes || item.selectedExcludes.length === 0) && item.excludes?.filter(ex => typeof ex === 'object' && ex.name).map((ex, i) => (
+    <span key={`exclude-direct-${i}`} className="text-[10px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 whitespace-nowrap">
+      -{ex.name}
+    </span>
+  ))}
 </div>
       {/* ملاحظات المنتج (إن وجدت) */}
       {item.notes && (

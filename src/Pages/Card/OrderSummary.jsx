@@ -445,6 +445,7 @@ export default function OrderSummary({
   orderType,
   subTotal,
   totalTax,
+  totalExcludedTax = 0,
   apiTotalDiscount,
   totalOtherCharge,
   serviceFeeData,

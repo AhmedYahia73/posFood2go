@@ -141,33 +141,30 @@ export function useOrderCalculations(
       return extraTax;
     };
 
-    // ── Subtotal Calculation ───────────────────────────────────────────
-    const subTotal = items.reduce((sum, item) => {
-      // الاعتماد على السعر الأساسي الصافي
-      const basePrice = parseFloat(item.originalPrice || item.price || 0);
 
-      const isWeightProduct = item.weight_status === 1 || item.weight_status === "1";
-      const isScaleWeightItem = isWeightProduct && item._source === "scale_barcode";
+    // ── Helper to check if tax is included in price ──────────────────
+    const isTaxIncluded = (item) => {
+      const setting =
+        item?.taxes?.setting ||
+        item?.taxes ||
+        item?.tax_obj?.setting ||
+        item?.tax?.setting ||
+        item?.product?.taxes?.setting ||
+        item?.product?.taxes;
 
-      const qty = isWeightProduct
-        ? (isScaleWeightItem ? Number(item._weight_kg || 0) : Number(item.quantity || 0))
-        : Number(item.count || 1);
+      return setting === "included";
+    };
 
-      const extraPrice = calculateExtraPrice(item);
-
-      // السعر النهائي = (السعر الأساسي 46.25 + الإضافات 113.75) * الكمية
-      return sum + ((basePrice * qty) + extraPrice);
-    }, 0);
-
-    // ── Taxes Calculation & Details ────────────────────────────────────
+    // ── Subtotal & Taxes Calculation ──────────────────────────────────
     let totalTax = 0;
     let totalDiscount = 0;
+    let subTotal = 0;
     const taxDetailsMap = {};
 
     items.forEach((item) => {
       const qty = (item.weight_status === 1 || item.weight_status === "1")
-        ? Number(item.quantity || 1)
-        : Number(item.count || 1);
+        ? (item._source === "scale_barcode" ? Number(item._weight_kg || 0) : Number(item.quantity || 1))
+        : Number(item.count || item.quantity || 1);
 
       const itemDiscount = Number(item.discount_val || 0);
       totalDiscount += itemDiscount * qty;
@@ -176,6 +173,20 @@ export function useOrderCalculations(
       const extraTax = calculateExtraTax(item);
       const totalItemTax = (itemTax + extraTax) * qty;
       totalTax += totalItemTax;
+
+      // السعر الإجمالي الفعلي للصنف مع إضافاته وكميته
+      const itemGrossTotal = parseFloat(
+        item.totalPrice !== undefined && item.totalPrice !== null
+          ? item.totalPrice
+          : (parseFloat(item.price || item.final_price || 0) * (qty || 1))
+      );
+
+      // لو الضريبة مشمولة: نطرح الضريبة للحصول على السعر قبل الضريبة (189.08 = 203 - 13.92)
+      if (isTaxIncluded(item)) {
+        subTotal += Math.max(0, itemGrossTotal - totalItemTax);
+      } else {
+        subTotal += itemGrossTotal;
+      }
 
       if (totalItemTax > 0 && item.tax_obj) {
         const taxName = item.tax_obj.name || "Tax";
@@ -186,7 +197,8 @@ export function useOrderCalculations(
             name: taxName,
             total: 0,
             amount: item.tax_obj.amount,
-            type: item.tax_obj.type
+            type: item.tax_obj.type,
+            setting: isTaxIncluded(item) ? "included" : "excluded",
           };
         }
         taxDetailsMap[taxId].total += totalItemTax;
@@ -209,22 +221,7 @@ export function useOrderCalculations(
     // ── Totals ─────────────────────────────────────────────────────────
     const totalBeforeDelivery = subTotal + totalTax + serviceCharge;
 
-    let amountToPay = items.reduce((sum, item) => {
-      const basePrice = parseFloat(item.originalPrice || item.price || 0);
-
-      const isWeightProduct = item.weight_status === 1 || item.weight_status === "1";
-      const isScaleWeightItem = isWeightProduct && item._source === "scale_barcode";
-
-      const qty = isWeightProduct
-        ? (isScaleWeightItem ? Number(item._weight_kg || 0) : Number(item.quantity || 0))
-        : Number(item.count || 1);
-
-      const extraPrice = calculateExtraPrice(item);
-
-      return sum + ((basePrice * qty) + extraPrice);
-    }, 0);
-
-    amountToPay += serviceCharge;
+    let amountToPay = subTotal + totalTax + serviceCharge;
 
     if (orderType === "delivery") {
       amountToPay += Number(deliveryFee);
@@ -235,25 +232,31 @@ export function useOrderCalculations(
         (i) => selectedPaymentItems.includes(i.temp_id) && i.preparation_status === "done"
       );
 
-      const selSub = selected.reduce((s, i) => {
-        const basePrice = parseFloat(i.originalPrice || i.price || 0);
+      let selTax = 0;
+      let selSub = 0;
+
+      selected.forEach((i) => {
         const qty = (i.weight_status === 1 || i.weight_status === "1")
-          ? Number(i.quantity || 1)
-          : Number(i.count || 1);
+          ? (i._source === "scale_barcode" ? Number(i._weight_kg || 0) : Number(i.quantity || 1))
+          : Number(i.count || i.quantity || 1);
 
-        const extraPrice = calculateExtraPrice(i);
-
-        return s + ((basePrice * qty) + extraPrice);
-      }, 0);
-
-      const selTax = selected.reduce((s, i) => {
-        const qty = (i.weight_status === 1 || i.weight_status === "1")
-          ? Number(i.quantity || 1)
-          : Number(i.count || 1);
         const itemTax = Number(i.tax_only || 0);
         const extraTax = calculateExtraTax(i);
-        return s + ((itemTax + extraTax) * qty);
-      }, 0);
+        const totalItemTax = (itemTax + extraTax) * qty;
+        selTax += totalItemTax;
+
+        const itemGross = parseFloat(
+          i.totalPrice !== undefined && i.totalPrice !== null
+            ? i.totalPrice
+            : (parseFloat(i.price || i.final_price || 0) * (qty || 1))
+        );
+
+        if (isTaxIncluded(i)) {
+          selSub += Math.max(0, itemGross - totalItemTax);
+        } else {
+          selSub += itemGross;
+        }
+      });
 
       let selSF = applySF
         ? sfType === "precentage"
@@ -261,18 +264,7 @@ export function useOrderCalculations(
           : serviceCharge * (subTotal > 0 ? selSub / subTotal : 0)
         : 0;
 
-      amountToPay = selected.reduce((s, i) => {
-        const basePrice = parseFloat(i.originalPrice || i.price || 0);
-        const qty = (i.weight_status === 1 || i.weight_status === "1")
-          ? Number(i.quantity || 1)
-          : Number(i.count || 1);
-
-        const extraPrice = calculateExtraPrice(i);
-
-        return s + ((basePrice * qty) + extraPrice);
-      }, 0);
-
-      amountToPay += selSF;
+      amountToPay = selSub + selTax + selSF;
     }
 
     const doneItems = items.filter((i) => i.preparation_status === "done");
@@ -282,12 +274,13 @@ export function useOrderCalculations(
         : items;
 
     return {
-      subTotal: Number(subTotal.toFixed(2)),
-      totalTax: Number(totalTax.toFixed(2)),
-      totalDiscount: Number(totalDiscount.toFixed(2)),
-      totalOtherCharge: Number(serviceCharge.toFixed(2)),
-      totalAmountDisplay: Number(totalBeforeDelivery.toFixed(2)),
-      amountToPay: Number(amountToPay.toFixed(2)),
+      subTotal: Number((subTotal || 0).toFixed(2)),
+      totalTax: Number((totalTax || 0).toFixed(2)),
+      totalExcludedTax: 0,
+      totalDiscount: Number((totalDiscount || 0).toFixed(2)),
+      totalOtherCharge: Number((serviceCharge || 0).toFixed(2)),
+      totalAmountDisplay: Number((totalBeforeDelivery || 0).toFixed(2)),
+      amountToPay: Number((amountToPay || 0).toFixed(2)),
       taxDetails,
       doneItems,
       checkoutItems,
