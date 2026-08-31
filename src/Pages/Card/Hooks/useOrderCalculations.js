@@ -164,20 +164,6 @@ export function useOrderCalculations(
       return extraTax;
     };
 
-
-    // ── Helper to check if tax is included in price ──────────────────
-    const isTaxIncluded = (item) => {
-      const setting =
-        item?.taxes?.setting ||
-        item?.taxes ||
-        item?.tax_obj?.setting ||
-        item?.tax?.setting ||
-        item?.product?.taxes?.setting ||
-        item?.product?.taxes;
-
-      return setting === "included";
-    };
-
     // ── Subtotal & Taxes Calculation ──────────────────────────────────
     let totalTax = 0;
     let totalDiscount = 0;
