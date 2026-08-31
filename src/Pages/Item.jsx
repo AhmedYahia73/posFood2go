@@ -324,9 +324,13 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
       // نستخدم parseFloat ونضع قيمة افتراضية 1
       const finalQuantity = parseFloat(product.quantity || product.count || customQuantity || 1);;
 
-      // 2. تأمين قراءة السعر
-      // في الـ favorites أحياناً السعر بيكون في price_after_discount أو final_price
-      const basePrice = parseFloat(product.final_price || product.price_after_discount || product.price || 0);
+      const isTaxIncluded = 
+        product.taxes === "included" || 
+        product.taxes?.setting === "included" || 
+        product.tax_obj?.setting === "included";
+      const basePrice = isTaxIncluded
+        ? parseFloat(product.final_price || product.price_after_tax || product.price || 0)
+        : parseFloat(product.price_after_discount || product.price || product.final_price || 0);
       const hasRequiredVariations = product.variations?.some(v => v.required === 1 || v.type === "single");
       const isWeightProduct = productType === "weight" || product.is_weight === 1;
 

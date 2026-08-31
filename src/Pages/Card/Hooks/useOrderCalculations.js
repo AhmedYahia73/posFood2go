@@ -100,29 +100,54 @@ export function useOrderCalculations(
     // --- دالة مساعدة لحساب ضرائب جميع الإضافات ---
     const calculateExtraTax = (item) => {
       let extraTax = 0;
+      const isItemTaxInc = isTaxIncluded(item);
+      const productTax = item.tax || item.tax_obj;
 
-      // 1. حساب ضريبة الـ extras
+      // 1. حساب ضريبة الـ extras والـ addons من selectedExtras
       const selectedExtras = item.selectedExtras || [];
+      const allExtrasCatalog = [
+        ...(item.allExtras || []),
+        ...(item.addons || []),
+        ...(item.addons_list || []),
+        ...(item.all_addons || [])
+      ];
+
       if (selectedExtras.length > 0) {
-        const allExtrasCatalog = item.allExtras || [];
         selectedExtras.forEach(id => {
-          const extra = allExtrasCatalog.find(e => String(e.id) === String(id));
+          const extra = allExtrasCatalog.find(e => String(e.id || e.addon_id) === String(id));
           if (extra) {
             let taxVal = parseFloat(extra.tax_val || extra.tax_only || 0);
             if (!taxVal && extra.price_after_tax && extra.price) {
               taxVal = Math.max(0, parseFloat(extra.price_after_tax) - parseFloat(extra.price));
             }
-            extraTax += taxVal;
+            if (!taxVal && productTax && !isItemTaxInc) {
+              const extraBasePrice = parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+              if (productTax.type === 'precentage' || productTax.type === 'percentage') {
+                taxVal = (extraBasePrice * parseFloat(productTax.amount || 0)) / 100;
+              } else if (productTax.type === 'value') {
+                taxVal = parseFloat(productTax.amount || 0);
+              }
+            }
+            extraTax += taxVal > 0 ? taxVal : 0;
           }
         });
       }
 
-      // 2. حساب ضريبة الـ addons
+      // 2. حساب ضريبة الـ addons إذا كانت مخزنة في item.addons
       const storedAddons = item.addons || [];
       storedAddons.forEach(addon => {
-        if (addon.addon_id !== undefined) {
+        const addonId = addon.addon_id || addon.id;
+        const alreadyCountedInSelected = selectedExtras.some(id => String(id) === String(addonId));
+        if (!alreadyCountedInSelected && addonId !== undefined) {
           const addonQty = parseFloat(addon.quantity || addon.count || 1);
-          extraTax += parseFloat(addon.tax_val || addon.tax_only || 0) * addonQty;
+          let addonTax = parseFloat(addon.tax_val || addon.tax_only || 0);
+          if (!addonTax && productTax && !isItemTaxInc) {
+            const baseP = parseFloat(addon.price || 0);
+            if (productTax.type === 'precentage' || productTax.type === 'percentage') {
+              addonTax = (baseP * parseFloat(productTax.amount || 0)) / 100;
+            }
+          }
+          extraTax += addonTax * addonQty;
         }
       });
 
@@ -154,7 +179,16 @@ export function useOrderCalculations(
           optionsList.forEach(opt => {
             const optionData = variationGroup.options?.find(o => String(o.id) === String(opt.id));
             if (optionData) {
-              const optTax = parseFloat(optionData.tax_val || optionData.tax_only || 0);
+              let optTax = parseFloat(optionData.tax_val || optionData.tax_only || 0);
+              if (!optTax && optionData.price_after_tax && optionData.price) {
+                optTax = Math.max(0, parseFloat(optionData.price_after_tax) - parseFloat(optionData.price));
+              }
+              if (!optTax && productTax && !isItemTaxInc) {
+                const optBasePrice = parseFloat(optionData.price || optionData.after_disount || optionData.final_price || 0);
+                if (productTax.type === 'precentage' || productTax.type === 'percentage') {
+                  optTax = (optBasePrice * parseFloat(productTax.amount || 0)) / 100;
+                }
+              }
               extraTax += (optTax * opt.weight);
             }
           });
@@ -170,6 +204,21 @@ export function useOrderCalculations(
     let subTotal = 0;
     const taxDetailsMap = {};
 
+    const addTaxToMap = (taxObj, amount) => {
+      if (!taxObj || amount <= 0) return;
+      const taxId = taxObj.id || taxObj.name || 'default';
+      if (!taxDetailsMap[taxId]) {
+        taxDetailsMap[taxId] = {
+          name: taxObj.name || "Tax",
+          total: 0,
+          amount: taxObj.amount,
+          type: taxObj.type,
+          setting: taxObj.setting || "excluded",
+        };
+      }
+      taxDetailsMap[taxId].total += amount;
+    };
+
     items.forEach((item) => {
       const qty = (item.weight_status === 1 || item.weight_status === "1")
         ? (item._source === "scale_barcode" ? Number(item._weight_kg || 0) : Number(item.quantity || 1))
@@ -178,41 +227,168 @@ export function useOrderCalculations(
       const itemDiscount = Number(item.discount_val || 0);
       totalDiscount += itemDiscount * qty;
 
-      const itemTax = Number(item.tax_only || 0);
-      const extraTax = calculateExtraTax(item);
-      const totalItemTax = (itemTax + extraTax) * qty;
-      totalTax += totalItemTax;
+      const isItemTaxInc = isTaxIncluded(item);
+      const productTax = item.tax_obj || item.tax || item.product?.tax_obj || item.product?.tax;
+      const allExtrasCatalog = [
+        ...(item.allExtras || []),
+        ...(item.addons || []),
+        ...(item.addons_list || []),
+        ...(item.all_addons || [])
+      ];
 
-      // السعر الإجمالي الفعلي للصنف مع إضافاته وكميته
-      const itemGrossTotal = parseFloat(
-        item.totalPrice !== undefined && item.totalPrice !== null
-          ? item.totalPrice
-          : (parseFloat(item.price || item.final_price || 0) * (qty || 1))
-      );
+      // 1. حساب السعر الأساسي للمنتج (مع الخيار الأساسي إن وجد)
+      let itemBasePrice = isItemTaxInc
+        ? parseFloat(item.final_price || item.price_after_tax || item.price || 0)
+        : parseFloat(item.price_after_discount || item.price || item.final_price || 0);
 
-      // لو الضريبة مشمولة: نطرح الضريبة للحصول على السعر قبل الضريبة (189.08 = 203 - 13.92)
-      if (isTaxIncluded(item)) {
-        subTotal += Math.max(0, itemGrossTotal - totalItemTax);
-      } else {
-        subTotal += itemGrossTotal;
+      let itemBaseTax = 0;
+
+      // حساب الـ variations
+      let variationAddonsPrice = 0;
+      let variationAddonsTax = 0;
+      const selectedVariation = item.selectedVariation;
+      const variations = item.variations || [];
+
+      if (selectedVariation && typeof selectedVariation === 'object') {
+        Object.entries(selectedVariation).forEach(([variationId, selectedValue]) => {
+          const variationGroup = variations.find(v => String(v.id) === String(variationId));
+          if (!variationGroup) return;
+
+          let optionsList = [];
+          if (Array.isArray(selectedValue)) {
+            selectedValue.forEach(val => {
+              if (val && typeof val === 'object' && val.optionId) {
+                optionsList.push({ id: val.optionId, weight: parseFloat(val.value || 1) });
+              } else {
+                optionsList.push({ id: val, weight: 1 });
+              }
+            });
+          } else if (selectedValue && typeof selectedValue === 'object' && selectedValue.optionId !== undefined) {
+            optionsList.push({ id: selectedValue.optionId, weight: parseFloat(selectedValue.value || 0) });
+          } else {
+            optionsList.push({ id: selectedValue, weight: 1 });
+          }
+
+          optionsList.forEach(opt => {
+            const optionData = variationGroup.options?.find(o => String(o.id) === String(opt.id));
+            if (optionData) {
+              if (optionData.total_option_price > 0 && variationGroup.type === 'single') {
+                itemBasePrice = parseFloat(optionData.total_option_price);
+              } else {
+                const optP = isItemTaxInc
+                  ? parseFloat(optionData.final_price || optionData.price_after_tax || optionData.price || 0)
+                  : parseFloat(optionData.price || optionData.after_disount || optionData.final_price || 0);
+                variationAddonsPrice += optP * opt.weight;
+
+                let optT = parseFloat(optionData.tax_val || optionData.tax_only || 0);
+                if (!optT && productTax) {
+                  if (productTax.type === 'precentage' || productTax.type === 'percentage') {
+                    optT = isItemTaxInc
+                      ? (optP - (optP / (1 + (parseFloat(productTax.amount) / 100))))
+                      : (optP * parseFloat(productTax.amount)) / 100;
+                  }
+                }
+                variationAddonsTax += optT * opt.weight;
+              }
+            }
+          });
+        });
       }
 
-      if (totalItemTax > 0 && item.tax_obj) {
-        const taxName = item.tax_obj.name || "Tax";
-        const taxId = item.tax_obj.id || 'default';
-
-        if (!taxDetailsMap[taxId]) {
-          taxDetailsMap[taxId] = {
-            name: taxName,
-            total: 0,
-            amount: item.tax_obj.amount,
-            type: item.tax_obj.type,
-            setting: isTaxIncluded(item) ? "included" : "excluded",
-          };
+      // حساب ضريبة المنتج الأساسي
+      if (productTax) {
+        if (productTax.type === 'precentage' || productTax.type === 'percentage') {
+          const rate = parseFloat(productTax.amount || 0);
+          itemBaseTax = isItemTaxInc
+            ? (itemBasePrice - (itemBasePrice / (1 + (rate / 100))))
+            : (itemBasePrice * rate) / 100;
+        } else if (productTax.type === 'value') {
+          itemBaseTax = parseFloat(productTax.amount || 0);
         }
-        taxDetailsMap[taxId].total += totalItemTax;
+      } else {
+        itemBaseTax = parseFloat(item.tax_only || item.tax_val || 0);
       }
+
+      addTaxToMap(productTax, (itemBaseTax + variationAddonsTax) * qty);
+
+      // 2. حساب الـ Extras من selectedExtras
+      let extrasTotalPrice = 0;
+      let extrasTotalTax = 0;
+      const selectedExtras = item.selectedExtras || [];
+      if (selectedExtras.length > 0) {
+        selectedExtras.forEach(id => {
+          const extra = allExtrasCatalog.find(e => String(e.id || e.addon_id) === String(id));
+          if (extra) {
+            const extraP = isItemTaxInc
+              ? parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)
+              : parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+            extrasTotalPrice += extraP;
+
+            const extraTaxObj = extra.tax || extra.tax_obj || productTax;
+            let extraT = parseFloat(extra.tax_val || extra.tax_only || 0);
+            if (!extraT && extraTaxObj) {
+              if (extraTaxObj.type === 'precentage' || extraTaxObj.type === 'percentage') {
+                const rate = parseFloat(extraTaxObj.amount || 0);
+                extraT = isItemTaxInc
+                  ? (extraP - (extraP / (1 + (rate / 100))))
+                  : (extraP * rate) / 100;
+              } else if (extraTaxObj.type === 'value') {
+                extraT = parseFloat(extraTaxObj.amount || 0);
+              }
+            }
+            extrasTotalTax += extraT;
+            addTaxToMap(extraTaxObj, extraT * qty);
+          }
+        });
+      }
+
+      // 3. حساب الـ Addons من item.addons
+      let addonsTotalPrice = 0;
+      let addonsTotalTax = 0;
+      const storedAddons = item.addons || [];
+      storedAddons.forEach(addon => {
+        const addonId = addon.addon_id || addon.id;
+        const alreadyInSelected = selectedExtras.some(id => String(id) === String(addonId));
+        if (!alreadyInSelected && addonId !== undefined) {
+          const addonQty = parseFloat(addon.quantity || addon.count || 1);
+          const addonP = isItemTaxInc
+            ? parseFloat(addon.final_price || addon.price_after_tax || addon.price || 0)
+            : parseFloat(addon.price || addon.price_after_discount || addon.final_price || 0);
+          addonsTotalPrice += addonP * addonQty;
+
+          const catalogAddon = allExtrasCatalog.find(e => String(e.id || e.addon_id) === String(addonId));
+          const addonTaxObj = addon.tax || addon.tax_obj || catalogAddon?.tax || catalogAddon?.tax_obj;
+          let addonT = parseFloat(addon.tax_val || addon.tax_only || catalogAddon?.tax_val || catalogAddon?.tax_only || 0);
+          if (!addonT && addonTaxObj) {
+            if (addonTaxObj.type === 'precentage' || addonTaxObj.type === 'percentage') {
+              const rate = parseFloat(addonTaxObj.amount || 0);
+              addonT = isItemTaxInc
+                ? (addonP - (addonP / (1 + (rate / 100))))
+                : (addonP * rate) / 100;
+            } else if (addonTaxObj.type === 'value') {
+              addonT = parseFloat(addonTaxObj.amount || 0);
+            }
+          }
+          addonsTotalTax += addonT * addonQty;
+          addTaxToMap(addonTaxObj, addonT * addonQty * qty);
+        }
+      });
+
+      // إجمالي الصنف قبل الضريبة
+      const itemNetPrice = isItemTaxInc
+        ? (itemBasePrice - itemBaseTax) + (variationAddonsPrice - variationAddonsTax) + (extrasTotalPrice - extrasTotalTax) + (addonsTotalPrice - addonsTotalTax)
+        : itemBasePrice + variationAddonsPrice + extrasTotalPrice + addonsTotalPrice;
+
+      subTotal += itemNetPrice * qty;
     });
+
+    // تقريب وإجمالي الضرائب
+    totalTax = Object.values(taxDetailsMap).reduce((sum, t) => {
+      t.total = Math.round(t.total * 100) / 100;
+      return sum + t.total;
+    }, 0);
+    totalTax = Math.round(totalTax * 100) / 100;
+    subTotal = Math.round(subTotal * 100) / 100;
 
     const taxDetails = Object.values(taxDetailsMap);
 

@@ -220,8 +220,14 @@ export const useProductModal = () => {
   useEffect(() => {
     if (!selectedProduct) return;
 
-    // استخدام final_price كسعر أساسي
-    let currentPrice = parseFloat(selectedProduct.final_price || selectedProduct.price_after_discount || 0);
+    const isTaxIncluded = 
+      selectedProduct.taxes === "included" || 
+      selectedProduct.taxes?.setting === "included" || 
+      selectedProduct.tax_obj?.setting === "included";
+
+    let currentPrice = isTaxIncluded
+      ? parseFloat(selectedProduct.final_price || selectedProduct.price_after_tax || selectedProduct.price || 0)
+      : parseFloat(selectedProduct.price_after_discount || selectedProduct.price || selectedProduct.final_price || 0);
     let variationCharges = 0;
 
     // حساب الـ variations
@@ -241,8 +247,13 @@ export const useProductModal = () => {
             if (isWeightOption) {
               const enteredWeight = typeof selected === "object" ? parseFloat(selected.value) || 0 : 0;
               variationCharges += parseFloat(opt.price || 0) * enteredWeight;
+            } else if (opt.total_option_price > 0) {
+              currentPrice = parseFloat(opt.total_option_price);
             } else {
-              variationCharges += parseFloat(opt.final_price || opt.price || 0);
+              const optPrice = isTaxIncluded
+                ? parseFloat(opt.final_price || opt.price_after_tax || opt.price || 0)
+                : parseFloat(opt.price || opt.after_disount || opt.final_price || 0);
+              variationCharges += optPrice;
             }
           }
         } else if (v.type === "multiple" && Array.isArray(selected)) {
@@ -257,12 +268,13 @@ export const useProductModal = () => {
             }
 
             if (opt) {
-              // إذا كان الخيار بالوزن، نضرب السعر في الكمية المدخلة
               if (opt.weight === 1) {
                 variationCharges += parseFloat(opt.price || 0) * quantity;
               } else {
-                // للخيارات العادية، نستخدم السعر النهائي
-                variationCharges += parseFloat(opt.final_price || opt.price_after_tax || opt.price || 0) * quantity;
+                const optPrice = isTaxIncluded
+                  ? parseFloat(opt.final_price || opt.price_after_tax || opt.price || 0)
+                  : parseFloat(opt.price || opt.after_disount || opt.final_price || 0);
+                variationCharges += optPrice * quantity;
               }
             }
           });
@@ -272,7 +284,6 @@ export const useProductModal = () => {
 
     // حساب الـ extras والـ addons باستخدام strict string comparison
     let extraCharges = 0;
-    const isTaxIncluded = 
       selectedProduct.taxes === "included" || 
       selectedProduct.taxes?.setting === "included" || 
       selectedProduct.tax_obj?.setting === "included";

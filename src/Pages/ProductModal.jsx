@@ -81,8 +81,15 @@ const ProductModal = ({
 
   const isWeightProduct = productType === "weight" || selectedProduct.weight_status === 1;
 
+  const isTaxIncluded = 
+    selectedProduct.taxes === "included" || 
+    selectedProduct.taxes?.setting === "included" || 
+    selectedProduct.tax_obj?.setting === "included";
+
   // حساب السعر مع الـ variations
-  let basePrice = parseFloat(selectedProduct.final_price || 0);
+  let basePrice = isTaxIncluded
+    ? parseFloat(selectedProduct.final_price || selectedProduct.price_after_tax || selectedProduct.price || 0)
+    : parseFloat(selectedProduct.price_after_discount || selectedProduct.price || selectedProduct.final_price || 0);
   let variationPrice = 0;
 
   // حساب الـ variations
@@ -105,7 +112,10 @@ const ProductModal = ({
           } else if (opt.total_option_price > 0) {
             basePrice = parseFloat(opt.total_option_price);
           } else {
-            variationPrice += parseFloat(opt.final_price || opt.price || 0);
+            const optPrice = isTaxIncluded
+              ? parseFloat(opt.final_price || opt.price_after_tax || opt.price || 0)
+              : parseFloat(opt.price || opt.after_disount || opt.final_price || 0);
+            variationPrice += optPrice;
           }
         }
       } else if (v.type === "multiple" && Array.isArray(selected)) {
@@ -123,18 +133,16 @@ const ProductModal = ({
             if (v.weight === 1 || v.weight === "1" || opt.weight === 1 || opt.weight === "1") {
               variationPrice += parseFloat(opt.price || 0) * quantity;
             } else {
-              variationPrice += parseFloat(opt.final_price || opt.price_after_tax || opt.price || 0) * quantity;
+              const optPrice = isTaxIncluded
+                ? parseFloat(opt.final_price || opt.price_after_tax || opt.price || 0)
+                : parseFloat(opt.price || opt.after_disount || opt.final_price || 0);
+              variationPrice += optPrice * quantity;
             }
           }
         });
       }
     });
   }
-
-  const isTaxIncluded = 
-    selectedProduct.taxes === "included" || 
-    selectedProduct.taxes?.setting === "included" || 
-    selectedProduct.tax_obj?.setting === "included";
 
   // إضافة الـ extras
   let extraPrice = 0;
@@ -197,6 +205,14 @@ const ProductModal = ({
       if (!taxVal && extra.price_after_tax && extra.price) {
         taxVal = Math.max(0, parseFloat(extra.price_after_tax) - parseFloat(extra.price));
       }
+      if (!taxVal && selectedProduct.tax && !isTaxIncluded) {
+        const extraBasePrice = parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+        if (selectedProduct.tax.type === 'precentage' || selectedProduct.tax.type === 'percentage') {
+          taxVal = (extraBasePrice * parseFloat(selectedProduct.tax.amount || 0)) / 100;
+        } else if (selectedProduct.tax.type === 'value') {
+          taxVal = parseFloat(selectedProduct.tax.amount || 0);
+        }
+      }
       extraTax += taxVal > 0 ? taxVal : 0;
     }
   });
@@ -253,11 +269,15 @@ const ProductModal = ({
 
     // إذا كان هناك سعر كلي للخيار، نعرضه كقيمة مطلقة
     if (option.total_option_price > 0 || isSizeVariation(variation)) {
-      priceToDisplay = parseFloat(option.total_option_price || option.final_price || 0);
+      priceToDisplay = isTaxIncluded
+        ? parseFloat(option.total_option_price || option.final_price || 0)
+        : parseFloat(option.total_option_price || (parseFloat(option.price || 0) + parseFloat(selectedProduct.price_after_discount || selectedProduct.price || 0)));
       return `${option.name} (${priceToDisplay.toFixed(2)} ${getCurrencySymbol()})`;
     } else {
       // لو مجرد زيادة (Add-on variation)
-      priceToDisplay = parseFloat(option.price ?? 0);
+      priceToDisplay = isTaxIncluded
+        ? parseFloat(option.final_price || option.price_after_tax || option.price || 0)
+        : parseFloat(option.price ?? option.final_price ?? 0);
       if (priceToDisplay === 0) return option.name;
       return `${option.name} (+${priceToDisplay.toFixed(2)} ${getCurrencySymbol()})`;
     }
@@ -391,11 +411,16 @@ const ProductModal = ({
                                     {(option.price || 0).toFixed(2)} {getCurrencySymbol()}/{variation.weight_unit || 'kg'}
                                   </span>
                                 ) : (
-                                  parseFloat(option.final_price || option.price_after_tax || 0) > 0 && (
-                                    <span className="text-xs">
-                                      +{(option.final_price || option.price_after_tax).toFixed(2)} {getCurrencySymbol()}
-                                    </span>
-                                  )
+                                  (() => {
+                                    const optDelta = isTaxIncluded
+                                      ? parseFloat(option.final_price || option.price_after_tax || option.price || 0)
+                                      : parseFloat(option.price || option.after_disount || option.final_price || 0);
+                                    return optDelta > 0 ? (
+                                      <span className="text-xs">
+                                        +{optDelta.toFixed(2)} {getCurrencySymbol()}
+                                      </span>
+                                    ) : null;
+                                  })()
                                 )}
                               </button>
 
@@ -489,15 +514,18 @@ const ProductModal = ({
                                   {option.name}
                                 </span>
                                 <div className="text-xs text-gray-500">
-                                  {/* عرض السعر بناءً على نوع الخيار */}
                                   {isWeightOption ? (
                                     // للخيارات بالوزن، عرض السعر للكيلو
                                     `${(option.price || 0).toFixed(2)} ${getCurrencySymbol()}/${variation.weight_unit || 'kg'}`
                                   ) : (
-                                    // للخيارات بالقطعة، عرض السعر العادي
-                                    parseFloat(option.final_price || option.price_after_tax || option.price || 0) === 0
-                                      ? "Free"
-                                      : `+${(option.final_price || option.price_after_tax || option.price).toFixed(2)} ${getCurrencySymbol()}`
+                                    (() => {
+                                      const optPrice = isTaxIncluded
+                                        ? parseFloat(option.final_price || option.price_after_tax || option.price || 0)
+                                        : parseFloat(option.price || option.after_disount || option.final_price || 0);
+                                      return optPrice === 0
+                                        ? "Free"
+                                        : `+${optPrice.toFixed(2)} ${getCurrencySymbol()}`;
+                                    })()
                                   )}
                                 </div>
                               </div>
@@ -663,18 +691,27 @@ const ProductModal = ({
                             {addon.name}
                           </span>
                           <div className="text-xs text-gray-500">
-                            +{(
-                              addon.final_price ??
-                              addon.price_after_tax ??
-                              addon.price_after_discount ??
-                              0
-                            ).toFixed(2)}{" "}
-                            {getCurrencySymbol()}
-                            {addon.tax && (
-                              <span className="ml-1 text-xs text-gray-400">
-                                ({t("inclTax")})
-                              </span>
-                            )}
+                            {(() => {
+                              const isIncluded = 
+                                selectedProduct.taxes === "included" || 
+                                selectedProduct.taxes?.setting === "included" || 
+                                selectedProduct.tax_obj?.setting === "included" ||
+                                addon?.taxes === "included" ||
+                                addon?.taxes?.setting === "included";
+                              const displayPrice = isIncluded
+                                ? parseFloat(addon.final_price ?? addon.price_after_tax ?? addon.price ?? 0)
+                                : parseFloat(addon.price ?? addon.price_after_discount ?? addon.final_price ?? 0);
+                              return (
+                                <>
+                                  +{displayPrice.toFixed(2)} {getCurrencySymbol()}
+                                  {isIncluded && addon.tax && (
+                                    <span className="ml-1 text-xs text-gray-400">
+                                      ({t("inclTax")})
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
@@ -819,12 +856,29 @@ const ProductModal = ({
                   tax_only: unitTax,
 
                   // نحفظ الـ catalog الكامل للـ addons عشان نقدر نسترجعه لاحقاً
+                  allExtras: [...(selectedProduct.allExtras || []), ...(selectedProduct.addons || [])],
                   addons_list: selectedProduct.addons_list || selectedProduct.addons || [],
 
                   // باقي الحقول كما هي...
                   addons: (selectedExtras.filter(id => (selectedProduct.addons || []).some(a => a.id === id))).map(addonId => {
                     const src = (selectedProduct.addons || []).find(a => a.id === addonId);
-                    return { addon_id: addonId, quantity: 1, price: src ? parseFloat(src.final_price || src.price || 0) : 0 };
+                    let addonTax = src ? parseFloat(src.tax_val || src.tax_only || 0) : 0;
+                    if (!addonTax && src && src.tax && !isTaxIncluded) {
+                      const baseP = parseFloat(src.price || src.price_after_discount || src.final_price || 0);
+                      if (src.tax.type === 'precentage' || src.tax.type === 'percentage') {
+                        addonTax = (baseP * parseFloat(src.tax.amount || 0)) / 100;
+                      } else if (src.tax.type === 'value') {
+                        addonTax = parseFloat(src.tax.amount || 0);
+                      }
+                    }
+                    return { 
+                      addon_id: addonId, 
+                      quantity: 1, 
+                      price: src ? (isTaxIncluded ? parseFloat(src.final_price || src.price || 0) : parseFloat(src.price || src.final_price || 0)) : 0,
+                      tax_val: addonTax,
+                      tax_only: addonTax,
+                      name: src?.name
+                    };
                   }),
                   variations: (selectedProduct.variations || []).map(group => {
                     const selectedValue = selectedVariation[group.id];

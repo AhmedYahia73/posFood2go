@@ -110,7 +110,14 @@ const ItemRow = ({
     ? (isScaleWeightItem ? Number(item._weight_kg || 0) : Number(item.quantity || 0))
     : Number(item.count || 1);
 
-  const displayedUnitPrice = Number(item.final_price || item.price_after_discount || 0);
+  const isTaxInc = 
+    item?.taxes === "included" || 
+    item?.taxes?.setting === "included" || 
+    item?.tax_obj?.setting === "included";
+
+  const displayedUnitPrice = isTaxInc
+    ? Number(item.final_price || item.price_after_tax || item.price || 0)
+    : Number(item.price_after_discount || item.price || item.final_price || 0);
   const totalPrice = Number(item.totalPrice || item.modalCalculatedPrice || item.price || 0).toFixed(2);
   let displayedOriginalUnitPrice = originalUnitBasePrice + addonsTotal;
 
