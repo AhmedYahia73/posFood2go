@@ -15,7 +15,7 @@ import { processProductItem } from "./Checkout/processProductItem";
 import ModuleOrderModal from "./ModuleOrderModal";
 import GroupSelector from "./GroupSelector";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = (window.API_BASE_URL || import.meta.env.VITE_API_BASE_URL);
 const getAuthToken = () => localStorage.getItem("token");
 let resturant_logo = localStorage.getItem("resturant_logo");
 
@@ -154,7 +154,22 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
     }
   }, [isNormalPrice, selectedGroup]);
 
-    // ── Query 1: Categories + Offers + Discounts ────────────────────────────────────────────
+
+  // ── Debounced search state ──────────────────────────────────────────────
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Reset to category view when switching to grid mode
+  useEffect(() => {
+    if (viewMode === "grid") {
+      setSelectedMainCategory("all");
+      setSelectedSubCategory(null);
+    }
+  }, [viewMode]);
+
   const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
     queryKey: ["categories", branchIdState, i18n.language],
     queryFn: () => apiFetcher(`captain/categories?branch_id=${branchIdState}&locale=${i18n.language}`),
@@ -174,64 +189,60 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
     return offersDataRes?.offers || [];
   }, [offersDataRes]);
 
-  // ── Debounced search state ──────────────────────────────────────────────
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 350);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  // ── Query: Search Products ──────────────────────────────
-  const { data: searchData, isLoading: searchLoading } = useQuery({
-    queryKey: ["searchProducts", branchIdState, i18n.language, orderType, debouncedSearch],
-    queryFn: () => apiFetcher(`captain/search_products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}&search=${encodeURIComponent(debouncedSearch)}`),
-    enabled: !!branchIdState && !!debouncedSearch.trim(),
-    staleTime: 5 * 60 * 1000,
+  // ── Query 2: Favourite Products (always loaded) ─────────────────────────
+  const { data: favouriteData, isLoading: favouriteLoading } = useQuery({
+    queryKey: ["favouriteProducts", branchIdState, i18n.language, orderType],
+    queryFn: () => apiFetcher(`captain/favourite_products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}`),
+    enabled: !!branchIdState,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: true,
   });
+  const favouriteProducts = useMemo(() => {
+    if (!favouriteData) return [];
+    return productType === "weight"
+      ? favouriteData.favourite_products_weight || []
+      : favouriteData.favourite_products || [];
+  }, [favouriteData, productType]);
 
-  const searchedProducts = useMemo(() => {
+  // ── Query 3: Category / All Products (on demand) ────────────────────────
+  const isSpecificCategory = selectedMainCategory !== "all" && selectedMainCategory !== "favorite";
+  const categoryProductsKey = isSpecificCategory ? selectedMainCategory : "_all_";
+  const categoryProductsUrl = useMemo(() => {
+    const base = `captain/products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}`;
+    return isSpecificCategory ? `${base}&category_id=${selectedMainCategory}` : base;
+  }, [branchIdState, i18n.language, orderType, selectedMainCategory, isSpecificCategory]);
+
+  const { data: categoryProductsData, isLoading: categoryProductsLoading } = useQuery({
+    queryKey: ["categoryProducts", branchIdState, i18n.language, orderType, categoryProductsKey],
+    queryFn: () => apiFetcher(categoryProductsUrl),
+    enabled: !!branchIdState && (isSpecificCategory || (viewMode === "sidebar" && selectedMainCategory === "all")),
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const allProducts = useMemo(() => {
+    if (!categoryProductsData) return [];
+    return productType === "weight"
+      ? categoryProductsData.products_weight || []
+      : categoryProductsData.products || [];
+  }, [categoryProductsData, productType]);
+
+  // ── Query 4: Backend Search (debounced onChange) ────────────────────────
+  const { data: searchData, isLoading: searchLoading } = useQuery({
+    queryKey: ["searchProducts", branchIdState, i18n.language, orderType, debouncedSearch, productType],
+    queryFn: () => apiFetcher(`captain/search_products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}&search=${encodeURIComponent(debouncedSearch)}`),
+    enabled: !!branchIdState && debouncedSearch.trim().length >= 1,
+    staleTime: 0,
+  });
+  const searchResults = useMemo(() => {
     if (!searchData) return [];
-    return productType === "weight" ? (searchData.products_weight || []) : (searchData.products || []);
+    return productType === "weight"
+      ? searchData.products_weight || []
+      : searchData.products || [];
   }, [searchData, productType]);
-  
-    const { data: favouriteData, isLoading: favouriteLoading } = useQuery({
-      queryKey: ["favouriteProducts", branchIdState, i18n.language, orderType],
-      queryFn: () => apiFetcher(`captain/favourite_products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}`),
-      enabled: !!branchIdState,
-      staleTime: 0,
-      gcTime: 0,
-    });
-  
-    const isSpecificCategory = selectedMainCategory !== "all" && selectedMainCategory !== "favorite";
-    const categoryProductsKey = isSpecificCategory ? selectedMainCategory : "_all_";
-    const { data: categoryProductsData, isLoading: categoryProductsLoading } = useQuery({
-      queryKey: ["categoryProducts", branchIdState, i18n.language, orderType, categoryProductsKey],
-      queryFn: () => {
-        const base = `captain/products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}`;
-        const url = isSpecificCategory ? `${base}&category_id=${selectedMainCategory}` : base;
-        return apiFetcher(url);
-      },
-      enabled: !!branchIdState && selectedMainCategory !== "favorite",
-      staleTime: 0,
-      gcTime: 0,
-    });
-  
-    const favouriteProducts = useMemo(() => {
-      if (!favouriteData) return [];
-      return productType === "weight"
-        ? favouriteData.favourite_products_weight || []
-        : favouriteData.favourite_products || [];
-    }, [favouriteData, productType]);
-  
-    const allProducts = useMemo(() => {
-      if (!categoryProductsData) return [];
-      return productType === "weight"
-        ? categoryProductsData?.products_weight || []
-        : categoryProductsData?.products || [];
-    }, [categoryProductsData, productType]);
-  
-    const allSubCategories = useMemo(() => {
-      return finalCategories.flatMap((cat) =>
+
+  const allSubCategories = useMemo(() => {
+    return finalCategories.flatMap((cat) =>
       (cat.sub_categories || []).map((sub) => ({
         ...sub,
         main_category_id: cat.id,
@@ -240,38 +251,24 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
     );
   }, [finalCategories]);
 
-  // Filtering Logic
+  // ── Filtering Logic ─────────────────────────────────────────────────────
   const filteredProducts = useMemo(() => {
-    let products = [];
-
-    // 1. لو في بحث (بندور في كل المنتجات)
-    if (debouncedSearch.trim()) {
-      return searchedProducts;
-    }
-
-    // 2. المفضلة
+    if (debouncedSearch.trim()) return searchResults;
     if (selectedMainCategory === "favorite" || selectedGroup === "all") {
-      products = favouriteProducts;
-    } else {
-      products = allProducts;
+      return favouriteProducts;
     }
-
-    // 3. تصنيف فرعي او رئيسي
-    if (selectedMainCategory !== "all" && selectedMainCategory !== "favorite") {
-      products = products.filter((p) => p.category_id === parseInt(selectedMainCategory));
-    }
+    let products = allProducts;
     if (selectedSubCategory) {
       products = products.filter((p) => p.sub_category_id === parseInt(selectedSubCategory));
     }
-
     return products;
   }, [
-    allProducts,
-    favouriteProducts,
+    debouncedSearch,
+    searchResults,
     selectedMainCategory,
     selectedSubCategory,
-    debouncedSearch,
-    searchedProducts,
+    favouriteProducts,
+    allProducts,
     isNormalPrice,
     selectedGroup,
   ]);
@@ -439,13 +436,14 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
         const payload = {
           table_id: tableId,
           cashier_id: localStorage.getItem("cashier_id"),
-          amount: totalAmount.toFixed(2),
+          amount: product.product_time ? "0.00" : totalAmount.toFixed(2),
           // تأمين حساب الضريبة
-          total_tax: (parseFloat(product.tax_only || 0) * finalQuantity).toFixed(2),
+          total_tax: product.product_time ? "0.00" : (parseFloat(product.tax_only || 0) * finalQuantity).toFixed(2),
           total_discount: "0.00",
           source: "web",
           products: [processedItem],
           ...(moduleIdToSend && { module_id: moduleIdToSend }), // ✅ بس لو في module_id حقيقي
+          ...(product.product_time && { time_start: Date.now().toString(), time_end: null }),
         };
 
         try {
@@ -464,16 +462,23 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
             count: finalQuantity,
             quantity: finalQuantity, // نأكد وجود الاثنين لضمان التوافق
             price: pricePerUnit,
-            totalPrice: totalAmount,
+            totalPrice: product.product_time ? 0 : totalAmount,
             // إضافة discount_val و tax_only بشكل صريح
             discount_val: parseFloat(product.discount_val || 0),
             tax_only: parseFloat(product.tax_only || 0),
+            ...(product.product_time && {
+              time_start: Date.now(),
+              time_ended: false,
+              elapsed_minutes: 0,
+            }),
           });
           toast.success(t("ProductAddedToTable"));
+
         } catch (err) {
           console.error("❌ API Error:", err);
           toast.error(t("FailedToAddToTable"));
         }
+
       } else {
         // Takeaway / Delivery - نضيف للكارت محلياً (localStorage)
         
@@ -495,11 +500,9 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
     [orderType, onAddToOrder, postOrder, t, selectedGroup, productType, openProductModal]// أضيفي selectedGroup هنا للمراقبة
   );
 
-    if (
-      groupLoading ||
-      categoriesLoading || favouriteLoading || categoryProductsLoading || offersLoading
-    ) {
-      return (
+  const isAllDataLoading = categoriesLoading || favouriteLoading;
+  if (groupLoading || isAllDataLoading) {
+    return (
       <div className="flex justify-center items-center h-40">
         <Loading />
       </div>
@@ -517,58 +520,56 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
     return { productCode: barcode, weight: 1, isWeightBarcode: false };
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = async (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
       const query = e.target.value.trim().toLowerCase();
       if (!query) return;
 
-      // تحليل الباركود
       const { productCode, weight, isWeightBarcode } = parseWeightBarcode(query);
-
-      // تحويل الكود لرقم عشان لو الباك إند مسجله "601" بدل "000601"
       const numericProductCode = parseInt(productCode, 10).toString();
+      const searchTerm = isWeightBarcode ? productCode : query;
 
-      // البحث عن المنتج
-      const matchedProducts = allProducts.filter((p) => {
-        const code = p.product_code?.toString().toLowerCase();
-        const barcode = p.barcode?.toString().toLowerCase();
-
-        return (
-          code === query ||
-          barcode === query ||
-          (isWeightBarcode && (code === productCode || code === numericProductCode || barcode === productCode || barcode === numericProductCode)) ||
-          (p.name?.toLowerCase() || "").includes(query)
+      try {
+        const result = await apiFetcher(
+          `captain/search_products?branch_id=${branchIdState}&locale=${i18n.language}&module=${orderType}&search=${encodeURIComponent(searchTerm)}`
         );
-      });
+        const products = productType === "weight"
+          ? result?.products_weight || []
+          : result?.products || [];
 
-      if (matchedProducts.length >= 1) {
-        // لو لقى أكتر من نتيجة بالاسم، بناخد أول نتيجة طابقت الكود بالظبط
-        const exactMatch = matchedProducts.find((p) => {
-          const code = p.product_code?.toString().toLowerCase();
-          const barcode = p.barcode?.toString().toLowerCase();
-          return (
-            code === query ||
-            barcode === query ||
-            (isWeightBarcode && (code === productCode || code === numericProductCode || barcode === productCode || barcode === numericProductCode))
-          );
-        }) || matchedProducts[0];
+        if (products.length >= 1) {
+          const exactMatch = products.find((p) => {
+            const code = p.product_code?.toString().toLowerCase();
+            const barcode = p.barcode?.toString().toLowerCase();
+            return (
+              code === query ||
+              barcode === query ||
+              (isWeightBarcode && (
+                code === productCode || code === numericProductCode ||
+                barcode === productCode || barcode === numericProductCode
+              ))
+            );
+          }) || products[0];
 
-        if (isWeightBarcode) {
-          // لو باركود ميزان، نضيفه فوراً بالوزن المحسوب
-          handleAddToOrder(exactMatch, { customQuantity: weight });
-          toast.success(t("ProductAddedFromBarcode") || `تم إضافة ${weight} كجم بنجاح`);
-        } else {
-          // لو باركود عادي، نเชيك لو محتاج يفتح المودال الأول
-          if (exactMatch.weight_status === 1 || exactMatch.variations?.length > 0) {
-            openProductModal(exactMatch);
+          if (isWeightBarcode) {
+            handleAddToOrder(exactMatch, { customQuantity: weight });
+            toast.success(t("ProductAddedFromBarcode") || `تم إضافة ${weight} كجم بنجاح`);
           } else {
-            handleAddToOrder(exactMatch);
-            toast.success(t("ProductAddedFromBarcode") || "تم إضافة المنتج بنجاح");
+            if (exactMatch.weight_status === 1 || exactMatch.variations?.length > 0) {
+              openProductModal(exactMatch);
+            } else {
+              handleAddToOrder(exactMatch);
+              toast.success(t("ProductAddedFromBarcode") || "تم إضافة المنتج بنجاح");
+            }
           }
+          setSearchQuery("");
+        } else {
+          toast.error(t("NoProductFound") || "لم يتم العثور على المنتج");
+          setSearchQuery("");
         }
-        setSearchQuery(""); // تفريغ الخانة للسكان اللي بعده
-      } else {
+      } catch (err) {
+        console.error("Barcode search error:", err);
         toast.error(t("NoProductFound") || "لم يتم العثور على المنتج");
         setSearchQuery("");
       }
@@ -947,19 +948,44 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
   );
 
   const categoriesGrid = (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 p-4">
-      {finalCategories.map((cat) => (
-        <div
-          key={cat.id}
-          onClick={() => handleCategorySelect(cat.id)}
-          className="flex flex-col items-center justify-center p-6 bg-white rounded-3xl border-2 border-transparent hover:border-bg-primary hover:shadow-xl transition-all cursor-pointer group"
-        >
-          <div className="w-20 h-20 mb-4 rounded-2xl overflow-hidden bg-gray-50">
-            <img src={cat.image_link} alt={cat.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-4 p-4">
+      {finalCategories.map((cat) => {
+        const subCount = cat.sub_categories?.length || 0;
+        return (
+          <div
+            key={cat.id}
+            onClick={() => handleCategorySelect(cat.id)}
+            className="group relative flex flex-col bg-white rounded-2xl border-2 border-gray-100 hover:border-bg-primary hover:shadow-2xl transition-all duration-300 cursor-pointer overflow-hidden"
+          >
+            {/* Category Image */}
+            <div className="relative h-32 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+              <img
+                src={cat.image_link}
+                alt={cat.name}
+                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              {subCount > 0 && (
+                <div className="absolute top-2 right-2 bg-bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md">
+                  {subCount} {isArabic ? 'قسم' : 'sub'}
+                </div>
+              )}
+            </div>
+            {/* Category Name */}
+            <div className="p-3 text-center">
+              <span className="font-bold text-sm text-gray-800 group-hover:text-bg-primary transition-colors leading-tight block">
+                {cat.name}
+              </span>
+              {subCount > 0 && (
+                <p className="text-[10px] text-gray-400 mt-0.5">{subCount} {isArabic ? 'تصنيف فرعي' : 'subcategories'}</p>
+              )}
+            </div>
+            {/* Hover Arrow Indicator */}
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-bg-primary scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left" />
           </div>
-          <span className="font-bold text-sm text-gray-800">{cat.name}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
   const handleSaveModuleOrder = async () => {
@@ -1124,40 +1150,101 @@ return (
           </div>
         )}
 
-        {/* 2. إذا كان وضع الـ Grid (عرض شبكي) */}
+        {/* 2. عرض شبكي - Categories → SubCategories → Products */}
         {viewMode === 'grid' && (
           <div className="w-full flex flex-col gap-2 mt-2">
-            {/* لو مفيش تصنيف مختار، اعرض شبكة التصنيفات */}
-            {selectedMainCategory === "all" || selectedMainCategory === "favorite" ? (
+
+            {/* ── Search Results (when backend search is active) ── */}
+            {debouncedSearch.trim() ? (
+              <div className="h-[calc(100vh-260px)] overflow-y-auto scrollbar-hide p-2">
+                {searchLoading ? (
+                  <div className="flex justify-center py-20"><Loading /></div>
+                ) : filteredProducts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                    <span className="text-5xl mb-4">🔍</span>
+                    <p className="text-lg font-medium">{t("No_products_found")}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                    {filteredProducts.map((product) => (
+                      <ProductCard key={product.id} product={product} onAddToOrder={handleAddToOrder} onOpenModal={openProductModal} orderLoading={orderLoading} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : selectedMainCategory === "all" ? (
+              /* ── Level 1: Categories Grid ── */
               <div className="h-[calc(100vh-260px)] overflow-y-auto scrollbar-hide">
                 {categoriesGrid}
               </div>
+            ) : selectedMainCategory === "favorite" ? (
+              /* ── Favourite Products ── */
+              <div className="h-[calc(100vh-260px)] overflow-y-auto scrollbar-hide p-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  {favouriteProducts.map((product) => (
+                    <ProductCard key={product.id} product={product} onAddToOrder={handleAddToOrder} onOpenModal={openProductModal} orderLoading={orderLoading} />
+                  ))}
+                </div>
+              </div>
             ) : (
-              /* لو اختار تصنيف، اعرض المنتجات ومعاها زر "رجوع" */
+              /* ── Level 2: Category Selected → Show SubCategories (if any) then Products ── */
               <div className="flex flex-col">
-                <Button
-                  onClick={() => setSelectedMainCategory("all")}
-                  className="mb-4 w-fit bg-gray-100 text-gray-700 hover:bg-gray-200"
-                >
-                  {isArabic ? "⬅️ العودة للتصنيفات" : "⬅️ Back to Categories"}
-                </Button>
-                
-                <div className="h-[calc(100vh-320px)] overflow-y-auto scrollbar-hide">
-                  {filteredProducts.length === 0 ? (
+                {/* Breadcrumb + Back button */}
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <Button
+                    onClick={() => { setSelectedMainCategory("all"); setSelectedSubCategory(null); }}
+                    className="flex items-center gap-1 bg-gray-100 text-gray-700 hover:bg-gray-200 h-8 px-3 text-xs rounded-xl"
+                  >
+                    <span>{isArabic ? "⬅️" : "⬅️"}</span>
+                    <span>{isArabic ? "التصنيفات" : "Categories"}</span>
+                  </Button>
+                  {selectedSubCategory && (
+                    <Button
+                      onClick={() => setSelectedSubCategory(null)}
+                      className="flex items-center gap-1 bg-gray-100 text-gray-700 hover:bg-gray-200 h-8 px-3 text-xs rounded-xl"
+                    >
+                      <span>{isArabic ? "⬅️ الأقسام" : "⬅️ Sections"}</span>
+                    </Button>
+                  )}
+                  {/* Current Category Name */}
+                  <span className="text-sm font-bold text-bg-primary">
+                    {finalCategories.find(c => c.id.toString() === selectedMainCategory)?.name || ""}
+                  </span>
+                </div>
+
+                {/* SubCategories Filter Chips (if category has subs and no sub selected yet) */}
+                {!selectedSubCategory && (() => {
+                  const currentCat = finalCategories.find(c => c.id.toString() === selectedMainCategory);
+                  const subs = currentCat?.sub_categories || [];
+                  return subs.length > 0 ? (
+                    <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-2">
+                      {subs.map(sub => (
+                        <button
+                          key={sub.id}
+                          onClick={() => setSelectedSubCategory(sub.id.toString())}
+                          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border-2 border-bg-primary/20 hover:border-bg-primary hover:bg-bg-primary/5 text-gray-700 transition-all whitespace-nowrap"
+                        >
+                          {sub.image_link && <img src={sub.image_link} alt={sub.name} className="w-5 h-5 rounded-full object-cover" />}
+                          <span>{sub.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+
+                {/* Products Grid */}
+                <div className="h-[calc(100vh-340px)] overflow-y-auto scrollbar-hide">
+                  {categoryProductsLoading ? (
+                    <div className="flex justify-center py-20"><Loading /></div>
+                  ) : filteredProducts.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                      <span className="text-5xl mb-4">🔍</span>
+                      <span className="text-5xl mb-4">📦</span>
                       <p className="text-lg font-medium">{t("No_products_found")}</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 p-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 p-1">
                       {productsToDisplay.map((product) => (
-                        <ProductCard
-                          key={product.id}
-                          product={product}
-                          onAddToOrder={handleAddToOrder}
-                          onOpenModal={openProductModal}
-                          orderLoading={orderLoading}
-                        />
+                        <ProductCard key={product.id} product={product} onAddToOrder={handleAddToOrder} onOpenModal={openProductModal} orderLoading={orderLoading} />
                       ))}
                     </div>
                   )}

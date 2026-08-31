@@ -250,7 +250,7 @@ const Dine = () => {
     }
   }, []);
   const selectedLocation = locations.find(
-    (loc) => loc.id === selectedLocationId
+    (loc) => loc.id.toString() === selectedLocationId?.toString()
   );
   const tablesToDisplay = processTablesWithMerge(
     selectedLocation?.tables || []
@@ -274,6 +274,12 @@ const Dine = () => {
     localStorage.setItem("order_type", "dine_in");
     localStorage.setItem("hall_name", selectedLocation?.name || "");
     localStorage.setItem("table_number", table.table_number || "");
+    // Save table sitting timer so OrderPage/DineInformation can display it
+    if (table.start_timer) {
+      localStorage.setItem("table_start_timer", table.start_timer);
+    } else {
+      localStorage.removeItem("table_start_timer");
+    }
 
     if (preparationNumber) {
       localStorage.setItem("preparation_number", preparationNumber);
@@ -576,6 +582,8 @@ const Dine = () => {
           {}
         );
         toast.success(t("StatusUpdated"));
+        // Update table data without refreshing the page
+        if (refetch) refetch();
       } catch (err) {
 
         toast.error(err.response?.data?.errors || "Failed");

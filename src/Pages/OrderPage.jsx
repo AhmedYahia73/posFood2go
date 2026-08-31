@@ -228,13 +228,15 @@ export default function OrderPage({
     // 1. تحقق إذا كان المنتج قادم من الميزان
     const isScaleItem = item._source === "scale_barcode";
 
+    const isProductTime = Boolean(item.product_time);
+
     if (currentOrderType === "dine_in") {
       setOrdersByTable((prev) => {
         const tableId = currentTableId;
         const currentItems = prev[tableId] || [];
 
-        // 2. إذا كان منتج ميزان، أضفه فوراً كسطر جديد دون بحث عن تكرار
-        if (isScaleItem) {
+        // 2. إذا كان منتج ميزان أو منتج وقت، أضفه فوراً كسطر جديد دون بحث عن تكرار
+        if (isScaleItem || isProductTime) {
           return {
             ...prev,
             [tableId]: [...currentItems, { ...item }],
@@ -261,7 +263,7 @@ export default function OrderPage({
       // أ- تحديث الـ takeAwayItems (عشان الـ Takeaway يفضل شغال)
       setTakeAwayItems((prev) => {
         let newItems;
-        if (isScaleItem) {
+        if (isScaleItem || isProductTime) {
           newItems = [...prev, { ...item }];
         } else {
           const existingItemIndex = prev.findIndex((i) => areProductsEqual(i, item));
@@ -286,7 +288,7 @@ export default function OrderPage({
           const currentItems = prev[userId] || [];
           let newItems;
 
-          if (isScaleItem) {
+          if (isScaleItem || isProductTime) {
             newItems = [...currentItems, { ...item }];
           } else {
             const existingItemIndex = currentItems.findIndex((i) =>

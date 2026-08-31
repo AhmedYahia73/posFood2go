@@ -11,19 +11,6 @@ export function useOrderCalculations(
   return useMemo(() => {
     const items = orderItems ?? [];
 
-    // ── Helper to check if tax is included in price ──────────────────
-    const isTaxIncluded = (item) => {
-      const setting =
-        item?.taxes?.setting ||
-        item?.taxes ||
-        item?.tax_obj?.setting ||
-        item?.tax?.setting ||
-        item?.product?.taxes?.setting ||
-        item?.product?.taxes;
-
-      return setting === "included";
-    };
-
     // --- دالة مساعدة لحساب أسعار جميع الإضافات بناءً على هيكل بياناتك ---
     const calculateExtraPrice = (item) => {
       let extraPrice = 0;
@@ -53,44 +40,42 @@ export function useOrderCalculations(
         }
       });
 
-      // 3. حساب الـ Variations بناءً على selectedVariation
+      // 3. حساب الـ Variations بناءً على selectedVariation (اللغز اللي كان مفقود)
       const selectedVariation = item.selectedVariation;
       const variations = item.variations || [];
 
       if (selectedVariation && typeof selectedVariation === 'object') {
-        Object.entries(selectedVariation).forEach(([varId, selected]) => {
-          const variation = variations.find((v) => String(v.id) === String(varId));
-          if (!variation) return;
+        Object.entries(selectedVariation).forEach(([variationId, selectedValue]) => {
+          const variationGroup = variations.find(v => String(v.id) === String(variationId));
+          if (!variationGroup) return;
 
-          // Single selection variation
-          if (variation.type === 'single') {
-            const selectedOptionId = typeof selected === 'object' ? selected.optionId : selected;
-            const opt = (variation.options || []).find((o) => String(o.id) === String(selectedOptionId));
-            if (opt) {
-              const isWeightOption = variation.weight === 1 || variation.weight === '1' || opt.weight === 1 || opt.weight === '1';
-              if (isWeightOption) {
-                const enteredWeight = typeof selected === 'object' ? parseFloat(selected.value) || 0 : 0;
-                extraPrice += parseFloat(opt.price || 0) * enteredWeight;
+          let optionsList = [];
+
+          // فحص هل القيمة مصفوفة (زي الأوزان [{optionId: 697, value: 1.75}]) أو ID مباشر (زي 698)
+          if (Array.isArray(selectedValue)) {
+            selectedValue.forEach(val => {
+              if (val && typeof val === 'object' && val.optionId) {
+                // استخدم val.value ككمية (وزن) وليس val.weight
+                optionsList.push({ id: val.optionId, weight: parseFloat(val.value || 1) });
               } else {
-                extraPrice += parseFloat(opt.price || 0);
-              }
-            }
-          }
-          // Multiple selection variation
-          else if (variation.type === 'multiple' && Array.isArray(selected)) {
-            selected.forEach((selItem) => {
-              let opt, quantity = 1;
-              if (selItem && typeof selItem === 'object') {
-                opt = (variation.options || []).find((o) => String(o.id) === String(selItem.optionId));
-                quantity = parseFloat(selItem.value) || 1;
-              } else {
-                opt = (variation.options || []).find((o) => String(o.id) === String(selItem));
-              }
-              if (opt) {
-                extraPrice += parseFloat(opt.price || 0) * quantity;
+                optionsList.push({ id: val, weight: 1 });
               }
             });
+          } else if (selectedValue && typeof selectedValue === 'object' && selectedValue.optionId !== undefined) {
+            // ✅ single بالوزن: { optionId, value } - نفس شكل الـ multiple لكن بدون array
+            optionsList.push({ id: selectedValue.optionId, weight: parseFloat(selectedValue.value || 0) });
+          } else {
+            optionsList.push({ id: selectedValue, weight: 1 });
           }
+
+          // ضرب السعر في الوزن المُدخل (value)
+          optionsList.forEach(opt => {
+            const optionData = variationGroup.options?.find(o => String(o.id) === String(opt.id));
+            if (optionData) {
+              const optPrice = parseFloat(optionData.final_price || optionData.price || optionData.additional_price || 0);
+              extraPrice += (optPrice * opt.weight); // مثال: 65 * 1.75 = 113.75
+            }
+          });
         });
       }
 
@@ -198,6 +183,19 @@ export function useOrderCalculations(
       return extraTax;
     };
 
+    // ── Helper to check if tax is included in price ──────────────────
+    const isTaxIncluded = (item) => {
+      const setting =
+        item?.taxes?.setting ||
+        item?.taxes ||
+        item?.tax_obj?.setting ||
+        item?.tax?.setting ||
+        item?.product?.taxes?.setting ||
+        item?.product?.taxes;
+
+      return setting === "included";
+    };
+
     // ── Subtotal & Taxes Calculation ──────────────────────────────────
     let totalTax = 0;
     let totalDiscount = 0;
@@ -236,12 +234,41 @@ export function useOrderCalculations(
         ...(item.all_addons || [])
       ];
 
+      // ── Product by Time: use pre-computed totalPrice ───────────────────────
+      if (item.product_time) {
+        if (item.time_ended && item.totalPrice != null) {
+          // Session ended — apply tax to the computed total
+          const computed = parseFloat(item.totalPrice || 0);
+          subTotal += computed;
+
+          if (productTax) {
+            let timeTax = 0;
+            const rate = parseFloat(productTax.amount || 0);
+            if (productTax.type === 'precentage' || productTax.type === 'percentage') {
+              timeTax = isItemTaxInc
+                ? (computed - (computed / (1 + rate / 100)))
+                : (computed * rate) / 100;
+            } else if (productTax.type === 'value') {
+              timeTax = rate;
+            }
+            totalTax += timeTax;
+            addTaxToMap(productTax, timeTax);
+          } else {
+            const fallbackTax = parseFloat(item.tax_only || item.tax_val || 0);
+            totalTax += fallbackTax;
+          }
+        }
+        // If session still running (time_ended === false), price is 0 → skip
+        return;
+      }
+
       // 1. حساب السعر الأساسي للمنتج (مع الخيار الأساسي إن وجد)
       let itemBasePrice = isItemTaxInc
         ? parseFloat(item.final_price || item.price_after_tax || item.price || 0)
         : parseFloat(item.price_after_discount || item.price || item.final_price || 0);
 
       let itemBaseTax = 0;
+
 
       // حساب الـ variations
       let variationAddonsPrice = 0;

@@ -23,6 +23,9 @@ const isSizeVariation = (variation) => {
 
 // ✅ تحديث دالة المقارنة لتشمل الـ Addons
 export const areProductsEqual = (product1, product2) => {
+  // منتجات الوقت (product_time) لا تدمج أبداً لأن كل واحدة لها عداد وزر إنهاء منفصل
+  if (product1.product_time || product2.product_time) return false;
+
   // 1. فحص الـ ID الأساسي
   if (product1.id !== product2.id) return false;
 
@@ -99,7 +102,6 @@ const ProductModal = ({
       if (!selected) return;
 
       if (v.type === "single") {
-        // ✅ الـ single ممكن يبقى شكله { optionId, value } لو كان بالوزن
         const selectedOptionId = typeof selected === "object" ? selected.optionId : selected;
         const opt = v.options.find((o) => String(o.id) === String(selectedOptionId));
         if (opt) {
@@ -122,7 +124,7 @@ const ProductModal = ({
         selected.forEach((item) => {
           let opt, quantity = 1;
 
-          if (item && typeof item === 'object') {
+          if (typeof item === 'object') {
             opt = v.options.find((o) => String(o.id) === String(item.optionId));
             quantity = item.value || 1;
           } else {
@@ -173,8 +175,6 @@ const ProductModal = ({
           if (isWeightOption) {
             const enteredWeight = typeof selected === "object" ? parseFloat(selected.value) || 0 : 0;
             variationTax += parseFloat(opt.tax_val || 0) * enteredWeight;
-          } else if (opt.total_option_price > 0) {
-            baseTax = parseFloat(opt.tax_val || 0);
           } else {
             variationTax += parseFloat(opt.tax_val || 0);
           }
@@ -182,7 +182,7 @@ const ProductModal = ({
       } else if (v.type === "multiple" && Array.isArray(selected)) {
         selected.forEach((item) => {
           let opt, quantity = 1;
-          if (item && typeof item === 'object') {
+          if (typeof item === 'object') {
             opt = v.options.find((o) => String(o.id) === String(item.optionId));
             quantity = item.value || 1;
           } else {
@@ -838,10 +838,9 @@ const ProductModal = ({
                   temp_id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                   selectedVariation,
                   selectedExtras: selectedExtras.filter(id =>
-                    (selectedProduct.allExtras || []).some(e => e.id === id) ||
-                    (selectedProduct.addons || []).some(a => a.id === id)
+                    (selectedProduct.allExtras || []).some(e => e.id === id)
                   ),
-                  selectedExcludes: selectedExcludes || [],
+                  selectedExcludes,
                   quantity: finalQuantity,
                   notes: notes.trim(),
 
@@ -905,7 +904,7 @@ const ProductModal = ({
                       return {
                         ...group,
                         selected_options: selectedOptions.map(item => {
-                          if (item && typeof item === 'object') {
+                          if (typeof item === 'object') {
                             // للمتغيرات بالوزن
                             const option = group.options.find(opt => opt.id === item.optionId);
                             return {
