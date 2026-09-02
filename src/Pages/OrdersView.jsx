@@ -4,12 +4,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useGet } from "@/Hooks/useGet";
 import Loading from "@/components/Loading";
 import { Button } from "@/components/ui/button";
-import { ChevronDownIcon } from "lucide-react";
 import { Circle, Hourglass, CheckCircle, ChefHat, Truck, Package } from "lucide-react";
 import { usePut } from "@/Hooks/usePut";
 import { toast } from "react-toastify";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
+import { getCurrencySymbol } from "../utils/currency";
 
 // حالات التحضير لكل نوع طلب
 const TAKE_AWAY_STATUSES = {
@@ -53,7 +53,7 @@ const DELIVERY_STATUSES = {
   },
 };
 
-// حالات الـ Dine In (عدّليها حسب اللي عندك في الـ backend)
+// حالات الـ Dine In
 const DINE_IN_STATUSES = {
   preparing: {
     label: "Preparing",
@@ -70,7 +70,95 @@ const DINE_IN_STATUSES = {
     icon: CheckCircle,
     color: "text-blue-600",
   },
-  // لو عندك حالات تانية زي "served" أو "cancelled" أضيفيها هنا
+};
+
+// Helper to get safe order number
+const getOrderNumber = (order) => {
+  if (!order) return "";
+  const num = order.order_number;
+  if (num && num !== "null" && num !== "undefined" && String(num).trim() !== "") {
+    return num;
+  }
+  const modNum = order.module_order_number;
+  if (modNum && modNum !== "null" && modNum !== "undefined" && String(modNum).trim() !== "") {
+    return modNum;
+  }
+  return order.id || order._id || "";
+};
+
+// Helper to get safe order date
+const getOrderDate = (order) => {
+  if (!order) return "";
+  const d =
+    order.createdAt ||
+    order.created_at ||
+    (order.date && order.date !== "null" ? order.date : "") ||
+    (order.order_date && order.order_date !== "null" ? order.order_date : "");
+  if (!d || d === "null" || d === "undefined") return "";
+  return d;
+};
+
+// Helper to extract items safely from order
+const getOrderItems = (order) => {
+  if (!order) return [];
+  let details = order.order_details || order.products || order.items || [];
+  if (typeof details === "string") {
+    try {
+      details = JSON.parse(details);
+    } catch (e) {
+      details = [];
+    }
+  }
+  if (!Array.isArray(details)) return [];
+
+  const items = [];
+  details.forEach((detail) => {
+    // 1. If detail.product is an Array
+    if (Array.isArray(detail.product)) {
+      detail.product.forEach((p) => {
+        const prodObj = p.product || p;
+        const name = prodObj.name || prodObj.product_name || p.name || p.product_name || "Unknown Product";
+        const count = parseFloat(p.count || p.quantity || detail.count || 1);
+        const variations = (detail.variations || [])
+          .flatMap((v) => (v.options || []).map((o) => o.name))
+          .filter(Boolean);
+        items.push({
+          name,
+          count,
+          notes: p.notes || detail.notes,
+          variations,
+        });
+      });
+    }
+    // 2. If detail.product is an Object
+    else if (detail.product && typeof detail.product === "object") {
+      const prodObj = detail.product.product || detail.product;
+      const name = prodObj.name || prodObj.product_name || detail.name || detail.product_name || "Unknown Product";
+      const count = parseFloat(detail.product.count || detail.count || detail.quantity || 1);
+      const variations = (detail.variations || [])
+        .flatMap((v) => (v.options || []).map((o) => o.name))
+        .filter(Boolean);
+      items.push({
+        name,
+        count,
+        notes: detail.product.notes || detail.notes,
+        variations,
+      });
+    }
+    // 3. Fallback: detail itself has name
+    else {
+      const name = detail.name || detail.product_name || detail.title || "Unknown Product";
+      const count = parseFloat(detail.count || detail.quantity || 1);
+      items.push({
+        name,
+        count,
+        notes: detail.notes,
+        variations: [],
+      });
+    }
+  });
+
+  return items;
 };
 
 export default function OrdersView() {
@@ -107,12 +195,18 @@ export default function OrdersView() {
   useEffect(() => {
     if (data && orders.length > 0) {
       const initialStatuses = orders.reduce((acc, order) => {
-        acc[order.id] = order.order_status || "preparing";
+        const orderId = order.id || order._id;
+        acc[orderId] =
+          orderType === "take_away"
+            ? (order.take_away_status || order.order_status || "watting")
+            : orderType === "delivery"
+            ? (order.delivery_status || order.order_status || "watting")
+            : (order.order_status || "preparing");
         return acc;
       }, {});
       setStatuses(initialStatuses);
     }
-  }, [data, orders]);
+  }, [data, orders, orderType]);
 
   const [updatingStatus, setUpdatingStatus] = useState({});
 
@@ -121,7 +215,8 @@ export default function OrdersView() {
 
   // فلترة الأوردرات حسب البحث وحسب الحالة (مخفية للحالات المنتهية)
   const filteredOrders = orders.filter((order) => {
-    const status = statuses[order.id];
+    const orderId = order.id || order._id;
+    const status = statuses[orderId] || (orderType === "take_away" ? order.take_away_status : orderType === "delivery" ? order.delivery_status : order.order_status);
     const isVisible =
       orderType === "take_away"
         ? status !== "pick_up"
@@ -129,7 +224,17 @@ export default function OrdersView() {
         ? status !== "delivered"
         : true; // للـ dine_in نعرض الكل عادي
 
-    return order.order_number?.toString().includes(search) && isVisible;
+    if (!isVisible) return false;
+
+    if (!search || search.trim() === "") return true;
+
+    const query = search.trim().toLowerCase();
+    const orderNum = String(getOrderNumber(order)).toLowerCase();
+    const id = String(order.id || order._id || "").toLowerCase();
+    const modNum = String(order.module_order_number || "").toLowerCase();
+    const customerName = String(order.customer_name || order.user?.name || "").toLowerCase();
+
+    return orderNum.includes(query) || id.includes(query) || modNum.includes(query) || customerName.includes(query);
   });
 
   // تغيير حالة الطلب
@@ -146,22 +251,21 @@ export default function OrdersView() {
       url = `cashier/order_status/${orderId}`;
       payload = { delivery_status: newStatus };
     }
-    // لو عايزة تغيير حالة للـ dine_in أضيفي endpoint هنا
 
     if (url) {
       try {
         const response = await putData(url, payload);
-        if (response && response.success) {
+        if (response && (response.success || response.status === 200 || response.data)) {
           setStatuses((prev) => ({
             ...prev,
             [orderId]: newStatus,
           }));
-          toast.success(t("Statusupdatedsuccessfully"));
+          toast.success(t("Statusupdatedsuccessfully") || "Status updated successfully");
         } else {
-          toast.error("Failedtoupdatestatus");
+          toast.error(t("Failedtoupdatestatus") || "Failed to update status");
         }
       } catch (err) {
-        toast.error(t("Errorupdatingstatus",err));
+        toast.error(t("Errorupdatingstatus", err) || "Error updating status");
       } finally {
         setUpdatingStatus((prev) => ({ ...prev, [orderId]: false }));
       }
@@ -172,7 +276,7 @@ export default function OrdersView() {
   const getAvailableStatuses = () => {
     if (orderType === "take_away") return TAKE_AWAY_STATUSES;
     if (orderType === "delivery") return DELIVERY_STATUSES;
-    if (orderType === "dine_in") return DINE_IN_STATUSES; // أو return {} لو مش عايزة أزرار للـ dine_in
+    if (orderType === "dine_in") return DINE_IN_STATUSES;
     return {};
   };
 
@@ -203,56 +307,75 @@ export default function OrdersView() {
         <p className="text-gray-500 text-center">{t("Noordersfound")}</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredOrders.map((order) => (
-            <Card key={order.id} className="border shadow-sm bg-white flex flex-col h-full">
-              <CardContent className="p-4 space-y-3 flex-grow">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-semibold text-lg">#{order.order_number}</h3>
+          {filteredOrders.map((order) => {
+            const orderId = order.id || order._id;
+            const items = getOrderItems(order);
+            const orderNum = getOrderNumber(order);
+            const orderDate = getOrderDate(order);
 
-                  {/* أزرار تغيير الحالة (مخفية للـ dine_in لو مش عايزاها) */}
-                  {orderType !== "dine_in" && (
-                    <div className="flex gap-2 flex-wrap">
-                      {Object.entries(getAvailableStatuses()).map(([key, value]) => {
-                        const isActive = statuses[order.id] === key;
-                        return (
-                          <Button
-                            key={key}
-                            size="sm"
-                            variant={isActive ? "default" : "outline"}
-                            className={`${value.color}`}
-                            disabled={updatingStatus[order.id]}
-                            onClick={() => handleStatusChange(order.id, key)}
-                          >
-                            <value.icon size={16} className="mr-1" />
-                            {t(value.label)}
-                          </Button>
-                        );
-                      })}
-                    </div>
+            return (
+              <Card key={orderId} className="border shadow-sm bg-white flex flex-col h-full hover:shadow-md transition-shadow">
+                <CardContent className="p-4 space-y-3 flex-grow">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-semibold text-lg">#{orderNum}</h3>
+
+                    {/* أزرار تغيير الحالة */}
+                    {orderType !== "dine_in" && (
+                      <div className="flex gap-2 flex-wrap">
+                        {Object.entries(getAvailableStatuses()).map(([key, value]) => {
+                          const isActive = statuses[orderId] === key;
+                          return (
+                            <Button
+                              key={key}
+                              size="sm"
+                              variant={isActive ? "default" : "outline"}
+                              className={`${value.color}`}
+                              disabled={updatingStatus[orderId]}
+                              onClick={() => handleStatusChange(orderId, key)}
+                            >
+                              <value.icon size={16} className="mr-1" />
+                              {t(value.label)}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm text-gray-500 border-b pb-2">
+                    <span>{orderDate}</span>
+                    {order.amount !== undefined && order.amount !== null && order.amount !== "null" && (
+                      <span className="font-semibold text-gray-800">
+                        {parseFloat(order.amount).toFixed(2)} {getCurrencySymbol()}
+                      </span>
+                    )}
+                  </div>
+
+                  {order.notes && order.notes !== "null" && order.notes !== "note" && (
+                    <p className="text-xs text-amber-700 bg-amber-50 p-1.5 rounded border border-amber-200">
+                      <span className="font-semibold">{t("Notes") || "Notes"}: </span>
+                      {order.notes}
+                    </p>
                   )}
 
-                  {/* لو عايزة أزرار للـ dine_in برضو، احذفي الشرط فوق وخليها تظهر دايماً */}
-                </div>
-
-                <p className="text-sm text-gray-500">
-                  {order.order_date} — {order.date}
-                </p>
-
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{t("Items")}:</p>
-                  <ul className="list-disc list-inside text-sm text-gray-700">
-                    {order.order_details?.map((detail, i) =>
-                      detail.product?.map((prod, j) => (
-                        <li key={`${i}-${j}`}>
-                          {prod.product.name} × {prod.count}
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{t("Items")}:</p>
+                    <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+                      {items.map((item, idx) => (
+                        <li key={idx}>
+                          <span className="font-medium">{item.name}</span>
+                          {item.variations?.length > 0 && (
+                            <span className="text-xs text-gray-500"> ({item.variations.join(", ")})</span>
+                          )}
+                          {" "}× {item.count}
                         </li>
-                      ))
-                    )}
-                  </ul>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                      ))}
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

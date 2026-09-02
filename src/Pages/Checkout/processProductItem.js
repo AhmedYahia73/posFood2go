@@ -76,7 +76,7 @@ export const processProductItem = (item) => {
     product_id: item.id.toString(),
     count: finalCount.toString(), // سيتم إرسال "1.5" بدلاً من "1"
     note,
-    price: parseFloat(item.price_after_discount || 0).toFixed(2),
+    price: parseFloat(item.price_after_discount || item.price_after_tax || item.final_price || item.finalPrice || item.price || 0).toFixed(2),
     variation: variations,
     addons,
     extra_id,

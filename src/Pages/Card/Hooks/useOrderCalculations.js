@@ -36,7 +36,10 @@ export function useOrderCalculations(
       storedAddons.forEach(addon => {
         if (addon.addon_id !== undefined) {
           const addonQty = parseFloat(addon.quantity || addon.count || 1);
-          extraPrice += parseFloat(addon.price || 0) * addonQty;
+          const addonP = isIncluded
+            ? parseFloat(addon.final_price || addon.price_after_tax || addon.price || 0)
+            : parseFloat(addon.price || addon.price_after_discount || addon.final_price || 0);
+          extraPrice += addonP * addonQty;
         }
       });
 
@@ -121,9 +124,10 @@ export function useOrderCalculations(
       // 2. حساب ضريبة الـ addons إذا كانت مخزنة في item.addons
       const storedAddons = item.addons || [];
       storedAddons.forEach(addon => {
-        const addonId = addon.addon_id || addon.id;
+        const addonId = addon.addon_id;
+        if (addonId === undefined) return;
         const alreadyCountedInSelected = selectedExtras.some(id => String(id) === String(addonId));
-        if (!alreadyCountedInSelected && addonId !== undefined) {
+        if (!alreadyCountedInSelected) {
           const addonQty = parseFloat(addon.quantity || addon.count || 1);
           let addonTax = parseFloat(addon.tax_val || addon.tax_only || 0);
           if (!addonTax && productTax && !isItemTaxInc) {
@@ -198,11 +202,13 @@ export function useOrderCalculations(
 
     // ── Subtotal & Taxes Calculation ──────────────────────────────────
     let totalTax = 0;
+    let totalTaxIncluded = 0;
+    let totalTaxExcluded = 0;
     let totalDiscount = 0;
     let subTotal = 0;
     const taxDetailsMap = {};
 
-    const addTaxToMap = (taxObj, amount) => {
+    const addTaxToMap = (taxObj, amount, isIncluded) => {
       if (!taxObj || amount <= 0) return;
       const taxId = taxObj.id || taxObj.name || 'default';
       if (!taxDetailsMap[taxId]) {
@@ -211,7 +217,7 @@ export function useOrderCalculations(
           total: 0,
           amount: taxObj.amount,
           type: taxObj.type,
-          setting: taxObj.setting || "excluded",
+          setting: isIncluded ? "included" : "excluded",
         };
       }
       taxDetailsMap[taxId].total += amount;
@@ -237,7 +243,6 @@ export function useOrderCalculations(
       // ── Product by Time: use pre-computed totalPrice ───────────────────────
       if (item.product_time) {
         if (item.time_ended && item.totalPrice != null) {
-          // Session ended — apply tax to the computed total
           const computed = parseFloat(item.totalPrice || 0);
           subTotal += computed;
 
@@ -251,14 +256,21 @@ export function useOrderCalculations(
             } else if (productTax.type === 'value') {
               timeTax = rate;
             }
-            totalTax += timeTax;
-            addTaxToMap(productTax, timeTax);
+            if (isItemTaxInc) {
+              totalTaxIncluded += timeTax;
+            } else {
+              totalTaxExcluded += timeTax;
+            }
+            addTaxToMap(productTax, timeTax, isItemTaxInc);
           } else {
             const fallbackTax = parseFloat(item.tax_only || item.tax_val || 0);
-            totalTax += fallbackTax;
+            if (isItemTaxInc) {
+              totalTaxIncluded += fallbackTax;
+            } else {
+              totalTaxExcluded += fallbackTax;
+            }
           }
         }
-        // If session still running (time_ended === false), price is 0 → skip
         return;
       }
 
@@ -268,7 +280,6 @@ export function useOrderCalculations(
         : parseFloat(item.price_after_discount || item.price || item.final_price || 0);
 
       let itemBaseTax = 0;
-
 
       // حساب الـ variations
       let variationAddonsPrice = 0;
@@ -336,7 +347,13 @@ export function useOrderCalculations(
         itemBaseTax = parseFloat(item.tax_only || item.tax_val || 0);
       }
 
-      addTaxToMap(productTax, (itemBaseTax + variationAddonsTax) * qty);
+      const totalBaseAndVarTax = (itemBaseTax + variationAddonsTax) * qty;
+      if (isItemTaxInc) {
+        totalTaxIncluded += totalBaseAndVarTax;
+      } else {
+        totalTaxExcluded += totalBaseAndVarTax;
+      }
+      addTaxToMap(productTax, totalBaseAndVarTax, isItemTaxInc);
 
       // 2. حساب الـ Extras من selectedExtras
       let extrasTotalPrice = 0;
@@ -364,7 +381,12 @@ export function useOrderCalculations(
               }
             }
             extrasTotalTax += extraT;
-            addTaxToMap(extraTaxObj, extraT * qty);
+            if (isItemTaxInc) {
+              totalTaxIncluded += extraT * qty;
+            } else {
+              totalTaxExcluded += extraT * qty;
+            }
+            addTaxToMap(extraTaxObj, extraT * qty, isItemTaxInc);
           }
         });
       }
@@ -374,9 +396,10 @@ export function useOrderCalculations(
       let addonsTotalTax = 0;
       const storedAddons = item.addons || [];
       storedAddons.forEach(addon => {
-        const addonId = addon.addon_id || addon.id;
+        const addonId = addon.addon_id;
+        if (addonId === undefined) return;
         const alreadyInSelected = selectedExtras.some(id => String(id) === String(addonId));
-        if (!alreadyInSelected && addonId !== undefined) {
+        if (!alreadyInSelected) {
           const addonQty = parseFloat(addon.quantity || addon.count || 1);
           const addonP = isItemTaxInc
             ? parseFloat(addon.final_price || addon.price_after_tax || addon.price || 0)
@@ -384,7 +407,7 @@ export function useOrderCalculations(
           addonsTotalPrice += addonP * addonQty;
 
           const catalogAddon = allExtrasCatalog.find(e => String(e.id || e.addon_id) === String(addonId));
-          const addonTaxObj = addon.tax || addon.tax_obj || catalogAddon?.tax || catalogAddon?.tax_obj;
+          const addonTaxObj = addon.tax || addon.tax_obj || catalogAddon?.tax || catalogAddon?.tax_obj || productTax;
           let addonT = parseFloat(addon.tax_val || addon.tax_only || catalogAddon?.tax_val || catalogAddon?.tax_only || 0);
           if (!addonT && addonTaxObj) {
             if (addonTaxObj.type === 'precentage' || addonTaxObj.type === 'percentage') {
@@ -397,23 +420,22 @@ export function useOrderCalculations(
             }
           }
           addonsTotalTax += addonT * addonQty;
-          addTaxToMap(addonTaxObj, addonT * addonQty * qty);
+          if (isItemTaxInc) {
+            totalTaxIncluded += addonT * addonQty * qty;
+          } else {
+            totalTaxExcluded += addonT * addonQty * qty;
+          }
+          addTaxToMap(addonTaxObj, addonT * addonQty * qty, isItemTaxInc);
         }
       });
 
-      // إجمالي الصنف قبل الضريبة
-      const itemNetPrice = isItemTaxInc
-        ? (itemBasePrice - itemBaseTax) + (variationAddonsPrice - variationAddonsTax) + (extrasTotalPrice - extrasTotalTax) + (addonsTotalPrice - addonsTotalTax)
-        : itemBasePrice + variationAddonsPrice + extrasTotalPrice + addonsTotalPrice;
-
-      subTotal += itemNetPrice * qty;
+      // السعر الإجمالي الفعلي للصنف مع إضافاته وكميته
+      const itemGrossTotal = itemBasePrice + variationAddonsPrice + extrasTotalPrice + addonsTotalPrice;
+      subTotal += itemGrossTotal * qty;
     });
 
     // تقريب وإجمالي الضرائب
-    totalTax = Object.values(taxDetailsMap).reduce((sum, t) => {
-      t.total = Math.round(t.total * 100) / 100;
-      return sum + t.total;
-    }, 0);
+    totalTax = totalTaxIncluded + totalTaxExcluded;
     totalTax = Math.round(totalTax * 100) / 100;
     subTotal = Math.round(subTotal * 100) / 100;
 
@@ -426,14 +448,15 @@ export function useOrderCalculations(
 
     const serviceCharge = applySF
       ? sfType === "precentage"
-        ? (subTotal + totalTax) * (sfAmt / 100)
+        ? (subTotal + totalTaxExcluded) * (sfAmt / 100)
         : sfAmt
       : 0;
 
     // ── Totals ─────────────────────────────────────────────────────────
-    const totalBeforeDelivery = subTotal + totalTax + serviceCharge;
+    // إذا كانت الضريبة مشمولة (included)، فإن subTotal يحتوي عليها مسبقاً ولا تضاف مرة أخرى
+    const totalBeforeDelivery = subTotal + totalTaxExcluded + serviceCharge;
 
-    let amountToPay = subTotal + totalTax + serviceCharge;
+    let amountToPay = subTotal + totalTaxExcluded + serviceCharge;
 
     if (orderType === "delivery") {
       amountToPay += Number(deliveryFee);
@@ -444,18 +467,18 @@ export function useOrderCalculations(
         (i) => selectedPaymentItems.includes(i.temp_id) && i.preparation_status === "done"
       );
 
-      let selTax = 0;
-      let selSub = 0;
+      let selExcludedTax = 0;
+      let selGross = 0;
 
       selected.forEach((i) => {
         const qty = (i.weight_status === 1 || i.weight_status === "1")
           ? (i._source === "scale_barcode" ? Number(i._weight_kg || 0) : Number(i.quantity || 1))
           : Number(i.count || i.quantity || 1);
 
+        const isInc = isTaxIncluded(i);
         const itemTax = Number(i.tax_only || 0);
         const extraTax = calculateExtraTax(i);
         const totalItemTax = (itemTax + extraTax) * qty;
-        selTax += totalItemTax;
 
         const itemGross = parseFloat(
           i.totalPrice !== undefined && i.totalPrice !== null
@@ -463,20 +486,19 @@ export function useOrderCalculations(
             : (parseFloat(i.price || i.final_price || 0) * (qty || 1))
         );
 
-        if (isTaxIncluded(i)) {
-          selSub += Math.max(0, itemGross - totalItemTax);
-        } else {
-          selSub += itemGross;
+        selGross += itemGross;
+        if (!isInc) {
+          selExcludedTax += totalItemTax;
         }
       });
 
       let selSF = applySF
         ? sfType === "precentage"
-          ? (selSub + selTax) * (sfAmt / 100)
-          : serviceCharge * (subTotal > 0 ? selSub / subTotal : 0)
+          ? (selGross + selExcludedTax) * (sfAmt / 100)
+          : serviceCharge * (subTotal > 0 ? selGross / subTotal : 0)
         : 0;
 
-      amountToPay = selSub + selTax + selSF;
+      amountToPay = selGross + selExcludedTax + selSF;
     }
 
     const doneItems = items.filter((i) => i.preparation_status === "done");
@@ -488,7 +510,8 @@ export function useOrderCalculations(
     return {
       subTotal: Number((subTotal || 0).toFixed(2)),
       totalTax: Number((totalTax || 0).toFixed(2)),
-      totalExcludedTax: 0,
+      totalTaxIncluded: Number((totalTaxIncluded || 0).toFixed(2)),
+      totalExcludedTax: Number((totalTaxExcluded || 0).toFixed(2)),
       totalDiscount: Number((totalDiscount || 0).toFixed(2)),
       totalOtherCharge: Number((serviceCharge || 0).toFixed(2)),
       totalAmountDisplay: Number((totalBeforeDelivery || 0).toFixed(2)),

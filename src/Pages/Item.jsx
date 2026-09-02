@@ -315,11 +315,10 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
   };
   const handleAddToOrder = useCallback(
     async (product, options = {}) => {
-      const { customQuantity = 1 } = options;
+      const { customQuantity = 1, isFromModal = false } = options;
 
       // 1. تأمين قراءة الكمية كـ Float (عشان 0.75 ما تتحولش لـ 0)
-      // نستخدم parseFloat ونضع قيمة افتراضية 1
-      const finalQuantity = parseFloat(product.quantity || product.count || customQuantity || 1);;
+      const finalQuantity = parseFloat(product.quantity || product.count || customQuantity || 1);
 
       const isTaxIncluded = 
         product.taxes === "included" || 
@@ -331,15 +330,15 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
       const hasRequiredVariations = product.variations?.some(v => v.required === 1 || v.type === "single");
       const isWeightProduct = productType === "weight" || product.is_weight === 1;
 
-      // التعديل هنا: بنضيف شرط !options.isFromModal 
-      // عشان لو جاي من المودال ميفضلش يفتح المودال في loop
-      if (!options.isFromModal && (hasRequiredVariations || isWeightProduct)) {
+      // لو المنتج يتطلب فتح المودال ولم يتم استدعاؤه من المودال، نفتحه للمستخدم
+      if (!isFromModal && (hasRequiredVariations || isWeightProduct)) {
         openProductModal(product);
         return;
       }
+
       let pricePerUnit = product.totalPrice
         ? parseFloat(product.totalPrice) / finalQuantity
-        : basePrice;
+        : (product.price ? parseFloat(product.price) : basePrice);
 
       if (!isNormalPrice && selectedGroup && selectedGroup !== "none" && selectedGroup !== "all") {
         try {
@@ -373,16 +372,11 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
               product.final_price = finalGroupPrice;
               product.price_after_discount = finalGroupPrice;
               product.price = originalMatchedPrice > 0 ? originalMatchedPrice : finalGroupPrice;
-              // Set discount_val so ItemRow.jsx calculates the correct strike-through original price
               product.discount_val = originalMatchedPrice > finalGroupPrice ? originalMatchedPrice - finalGroupPrice : 0;
-              
-              // Set tax_only from group pricing response if available
               product.tax_only = parseFloat(matchedProduct.tax_only || matchedProduct.tax_val || 0);
-
-              // التحديث عشان لو كان المودال حاسب totalPrice قبل كده
               product.totalPrice = finalGroupPrice * finalQuantity;
 
-              // 🔴 مسح أسعار الإضافات والأحجام لأن الباك إند رجع السعر الـ Absolute الشامل لكل حاجة
+              // مسح أسعار الإضافات والأحجام لأن الباك إند رجع السعر الشامل
               product.is_group_priced = true;
               if (product.variations) {
                 product.variations = product.variations.map(v => ({
@@ -415,20 +409,42 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
         return toast.error(t("ErrorCalculatingPrice"));
       }
 
-      // 3. بناء الـ Payload مع التأكد من إرسال أرقام صحيحة
-      const processedItem = buildProductPayload({
-        ...product,
-        price: pricePerUnit,
-        count: finalQuantity, // نرسلها كما هي كـ Float
-      });
-
       const createTempId = (pId) => `${pId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // ✅ توحيد هيكل بيانات الصنف المضاف للكارت سواء جاء من المودال أو من زر Add to Order المباشر
+      const itemToOrder = {
+        ...product,
+        temp_id: isFromModal && product.temp_id ? product.temp_id : createTempId(product.id),
+        count: finalQuantity,
+        quantity: finalQuantity,
+        price: pricePerUnit,
+        modalCalculatedPrice: pricePerUnit,
+        originalPrice: product.originalPrice || product.final_price || product.price,
+        totalPrice: product.product_time ? 0 : totalAmount,
+        discount_val: parseFloat(product.discount_val || 0),
+        tax_only: parseFloat(product.tax_only || product.tax_val || 0),
+        allExtras: isFromModal ? (product.allExtras || []) : [...(product.allExtras || []), ...(product.addons || [])],
+        addons_list: product.addons_list || product.addons || [],
+        addons: isFromModal ? (product.addons || []) : [],
+        selectedExtras: isFromModal ? (product.selectedExtras || []) : [],
+        selectedVariation: isFromModal ? (product.selectedVariation || {}) : {},
+        selectedExcludes: isFromModal ? (product.selectedExcludes || []) : [],
+        notes: isFromModal ? (product.notes || "") : "",
+        ...(product.product_time && {
+          time_start: product.time_start || Date.now().toString(),
+          time_ended: false,
+          elapsed_minutes: 0,
+        }),
+      };
+
+      // 3. بناء الـ Payload مع التأكد من إرسال أرقام صحيحة
+      const processedItem = buildProductPayload(itemToOrder);
 
       if (orderType === "dine_in") {
         const tableId = localStorage.getItem("table_id");
         if (!tableId) return toast.error(t("PleaseSelectTableFirst"));
 
-        // ✅ تنظيف الـ module_id - لو "none" أو "all" يبقى null
+        // تنظيف الـ module_id
         const moduleIdToSend = (selectedGroup && selectedGroup !== "none" && selectedGroup !== "all") 
           ? selectedGroup 
           : null;
@@ -438,11 +454,11 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
           cashier_id: localStorage.getItem("cashier_id"),
           amount: product.product_time ? "0.00" : totalAmount.toFixed(2),
           // تأمين حساب الضريبة
-          total_tax: product.product_time ? "0.00" : (parseFloat(product.tax_only || 0) * finalQuantity).toFixed(2),
+          total_tax: product.product_time ? "0.00" : (parseFloat(itemToOrder.tax_only || 0) * finalQuantity).toFixed(2),
           total_discount: "0.00",
           source: "web",
           products: [processedItem],
-          ...(moduleIdToSend && { module_id: moduleIdToSend }), // ✅ بس لو في module_id حقيقي
+          ...(moduleIdToSend && { module_id: moduleIdToSend }),
           ...(product.product_time && { time_start: Date.now().toString(), time_end: null }),
         };
 
@@ -456,21 +472,8 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
           const serverCartId = response?.data?.cart_id || response?.cart_id;
 
           onAddToOrder({
-            ...product,
-            temp_id: createTempId(product.id),
+            ...itemToOrder,
             cart_id: serverCartId,
-            count: finalQuantity,
-            quantity: finalQuantity, // نأكد وجود الاثنين لضمان التوافق
-            price: pricePerUnit,
-            totalPrice: product.product_time ? 0 : totalAmount,
-            // إضافة discount_val و tax_only بشكل صريح
-            discount_val: parseFloat(product.discount_val || 0),
-            tax_only: parseFloat(product.tax_only || 0),
-            ...(product.product_time && {
-              time_start: Date.now(),
-              time_ended: false,
-              elapsed_minutes: 0,
-            }),
           });
           toast.success(t("ProductAddedToTable"));
 
@@ -481,23 +484,11 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
 
       } else {
         // Takeaway / Delivery - نضيف للكارت محلياً (localStorage)
-        
-        // ✅ نضيف المنتج للكارت مباشرة بالبيانات اللي عندنا
-        onAddToOrder({
-          ...product,
-          temp_id: createTempId(product.id),
-          count: finalQuantity,
-          quantity: finalQuantity,
-          price: pricePerUnit,
-          totalPrice: totalAmount,
-          // ✅ إضافة discount_val و tax_only بشكل صريح
-          discount_val: parseFloat(product.discount_val || 0),
-          tax_only: parseFloat(product.tax_only || 0),
-        });
+        onAddToOrder(itemToOrder);
         toast.success(t("ProductAddedToCart"));
       }
     },
-    [orderType, onAddToOrder, postOrder, t, selectedGroup, productType, openProductModal]// أضيفي selectedGroup هنا للمراقبة
+    [orderType, onAddToOrder, postOrder, t, selectedGroup, productType, openProductModal, branchIdState, isNormalPrice]
   );
 
   const isAllDataLoading = categoriesLoading || favouriteLoading;

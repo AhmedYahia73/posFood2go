@@ -60,7 +60,10 @@ export const calculateItemUnitPrice = (baseProduct, selectedVariation = {}, sele
     storedAddons.forEach(addon => {
       if (addon.addon_id !== undefined) {
         const qty = parseFloat(addon.quantity || addon.count || 1);
-        additions += parseFloat(addon.price || 0) * qty;
+        const addonP = isTaxIncluded
+          ? parseFloat(addon.final_price || addon.price_after_tax || addon.price || 0)
+          : parseFloat(addon.price || addon.price_after_discount || addon.final_price || 0);
+        additions += addonP * qty;
       }
     });
   }
