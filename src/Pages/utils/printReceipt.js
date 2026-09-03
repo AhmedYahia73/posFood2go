@@ -1156,6 +1156,14 @@ if (finalOrderType === "delivery") {
         0
       );
 
+      const total = Number(
+        item.total ||
+        productObj.total ||
+        orderItem?.total ||
+        (price * qty) ||
+        0
+      );
+
       // Backend returns "note" (singular) — support both
       const notes = item.note || item.notes || productObj.note || productObj.notes || orderItem?.notes || "";
 
