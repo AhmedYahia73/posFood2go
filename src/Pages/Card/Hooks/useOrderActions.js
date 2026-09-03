@@ -2,6 +2,7 @@ import { toast } from "react-toastify";
 import { buildProductPayload } from "@/services/productProcessor";
 import { PREPARATION_STATUSES } from "../constants";
 import { processProductItem } from "@/Pages/Checkout/processProductItem";
+import { printKitchenOnly } from "@/Pages/utils/printReceipt";
 
 export function useOrderActions({
   orderItems,
@@ -82,7 +83,7 @@ export function useOrderActions({
     });
 
     try {
-      await postData("cashier/preparing", formData);
+      const response = await postData("cashier/preparing", formData);
 
       const updatedItems = orderItems.map((item) =>
         item.temp_id === itemTempId
@@ -92,6 +93,32 @@ export function useOrderActions({
 
       updateOrderItems(updatedItems);
       toast.success(`تم تحديث الحالة إلى ${PREPARATION_STATUSES[nextStatus].label}`);
+
+      // ✅ طباعة إيصال المطبخ للصنف المنفرد عند تغيير الحالة إلى Preparing
+      const statusApiValue = PREPARATION_STATUSES[nextStatus]?.apiValue || nextStatus;
+      if (statusApiValue === "preparing" && response && response.kitchen_items?.length > 0) {
+        const now = new Date();
+        const dateFormatted = now.toLocaleDateString("en-GB");
+        const timeFormatted = now.toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        });
+
+        const receiptData = {
+          table_number: response.table_number || "N/A",
+          table: response.table_number || "N/A",
+          orderType: "dine_in",
+          success: response.success,
+          kitchen_items: response.kitchen_items,
+          invoiceNumber: "", // رقم الأوردر أثناء تغيير الحالة يظهر فاضي
+          dateFormatted,
+          timeFormatted,
+        };
+        printKitchenOnly(receiptData, response, () => {
+          console.log("✅ تمت عملية إرسال أمر الطباعة للمطبخ للصنف");
+        });
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || "فشل تحديث الحالة");
     } finally {

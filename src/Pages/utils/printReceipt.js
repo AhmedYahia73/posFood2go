@@ -756,6 +756,37 @@ const formatKitchenReceipt = (receiptData, productsList = []) => {
   // ✅ إجمالي الأصناف (orderCount) لو موجود في الـ receiptData
   const totalItems = receiptData.orderCount || 0;
 
+  // ✅ استخراج رقم الفاتورة (يظهر فاضي إذا كان غير موجود أو undefined أو أثناء تغيير الحالة)
+  const invoiceDisplay =
+    receiptData.invoiceNumber &&
+    String(receiptData.invoiceNumber).trim() !== "undefined" &&
+    String(receiptData.invoiceNumber).trim() !== "null"
+      ? receiptData.invoiceNumber
+      : "";
+
+  // ✅ استخراج الوقت والتاريخ (الافتراضي هو الوقت والتاريخ الحالي لو غير متوفرين)
+  const now = new Date();
+  const defaultDate = now.toLocaleDateString("en-GB");
+  const defaultTime = now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const finalDate =
+    receiptData.dateFormatted &&
+    String(receiptData.dateFormatted).trim() !== "undefined" &&
+    String(receiptData.dateFormatted).trim() !== "null"
+      ? receiptData.dateFormatted
+      : defaultDate;
+
+  const finalTime =
+    receiptData.timeFormatted &&
+    String(receiptData.timeFormatted).trim() !== "undefined" &&
+    String(receiptData.timeFormatted).trim() !== "null"
+      ? receiptData.timeFormatted
+      : defaultTime;
+
   return `
     <html>
       <head>
@@ -821,9 +852,8 @@ const formatKitchenReceipt = (receiptData, productsList = []) => {
             <div class="big-number">${displayBigNumber}</div>
           </div>
           <div class="box-right">
-            <div class="row-label">${isArabic ? "رقم الفاتورة" : "Order #"} ${receiptData.invoiceNumber
-    }</div>
-            <div class="row-label">${receiptData.timeFormatted}<br>${receiptData.dateFormatted}</div>
+            <div class="row-label">${isArabic ? "رقم الفاتورة" : "Order #"}<br><span style="font-size: 11px;">${invoiceDisplay}</span></div>
+            <div class="row-label">${finalTime}<br>${finalDate}</div>
             <!-- ✅ إضافة إجمالي الأصناف -->
             <div class="row-label">${isArabic ? "إجمالي الأصناف" : "Total Items"}: ${totalItems}</div>
           </div>

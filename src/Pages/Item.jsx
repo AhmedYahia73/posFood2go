@@ -814,13 +814,13 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
   const categoriesSection = (
     <div
       dir={isArabic ? "rtl" : "ltr"}
-      className="lg:w-45 w-full lg:sticky lg:top-4 bg-white z-10 lg:h-[calc(100vh-120px)] flex flex-col gap-2"
+      className="md:w-44 lg:w-48 w-full md:sticky md:top-2 bg-white z-10 md:h-[calc(100vh-230px)] flex flex-col gap-2"
     >
       <div className="flex items-center justify-between px-2 mb-1">
         <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
           {t("Categories")}
         </h4>
-        <div className="hidden lg:flex items-center gap-1">
+        <div className="hidden md:flex items-center gap-1">
           <button
             onClick={() => scroll("up")}
             className="p-1 rounded-full hover:bg-bg-primary hover:text-white text-gray-400 transition-colors border border-gray-100 shadow-sm"
@@ -844,7 +844,7 @@ export default function Item({ onAddToOrder, onClose, onClearCart, cartHasItems,
 
       <div
         ref={scrollRef}
-        className="flex lg:flex-col overflow-x-auto lg:overflow-y-auto pb-2 lg:pb-0 gap-2 scrollbar-hide scroll-smooth"
+        className="flex md:flex-col overflow-x-auto md:overflow-y-auto pb-2 md:pb-0 gap-2 custom-scrollbar scroll-smooth"
       >
         {currentOffers.length > 0 && (
           <div
@@ -1099,9 +1099,9 @@ return (
 
         {/* 1. إذا كان وضع الـ Sidebar (الشكل الحالي) */}
         {viewMode === 'sidebar' && (
-          <div className="flex flex-col lg:flex-row gap-4 items-start w-full mt-2">
-            {/* عرض المنتجات فقط بدون تكرار شريط البحث */}
-            <div className="w-full lg:w-[85%]">
+          <div className="flex flex-col md:flex-row gap-4 items-start w-full mt-2">
+            {/* عرض المنتجات مع السكرول وزر Load More داخل السكرول */}
+            <div className="w-full md:w-[82%] lg:w-[85%] h-[calc(100vh-230px)] overflow-y-auto custom-scrollbar pr-1">
               {filteredProducts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                   <span className="text-5xl mb-4">🔍</span>
@@ -1109,7 +1109,7 @@ return (
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 p-2 h-[calc(100vh-260px)] overflow-y-auto scrollbar-hide">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 p-2">
                     {productsToDisplay.map((product) => (
                       <ProductCard
                         key={product.id}
@@ -1121,7 +1121,7 @@ return (
                     ))}
                   </div>
                   {visibleProductCount < filteredProducts.length && (
-                    <div className="flex justify-center mt-4 pb-4">
+                    <div className="flex justify-center my-4 pb-6">
                       <Button
                         onClick={() => setVisibleProductCount((prev) => prev + 10)}
                         className="bg-bg-primary text-white px-10 rounded-full shadow-md hover:opacity-90 transition-opacity"
@@ -1135,7 +1135,7 @@ return (
             </div>
 
             {/* عمود التصنيفات الجانبي */}
-            <div className="w-full lg:w-[15%]">
+            <div className="w-full md:w-[18%] lg:w-[15%]">
               {categoriesSection}
             </div>
           </div>
