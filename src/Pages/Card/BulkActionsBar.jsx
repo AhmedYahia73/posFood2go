@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { PREPARATION_STATUSES, statusOrder } from "./constants";
 import CaptainSelectionModal from "../CaptainSelectionModal";
-import { prepareReceiptData, printReceiptSilently } from "../utils/printReceipt";
+import { prepareReceiptData, printReceiptSilently, printKitchenOnly } from "../utils/printReceipt";
 export default function BulkActionsBar({
   bulkStatus,
   setBulkStatus,
@@ -53,9 +53,8 @@ export default function BulkActionsBar({
           kitchen_items: response.kitchen_items
         };
 
-        // 2. استدعاء الطباعة مباشرة
-        // دالة printReceiptSilently هي اللي هتلف جواه وتطبع لكل طابعة الـ IP بتاعها
-        printReceiptSilently(receiptData, response, () => {
+        // 2. استدعاء طباعة المطبخ فقط مباشرة
+        printKitchenOnly(receiptData, response, () => {
           console.log("✅ تمت عملية إرسال أوامر الطباعة للمطابخ");
         });
 

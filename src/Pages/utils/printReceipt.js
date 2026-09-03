@@ -1334,99 +1334,135 @@ if (finalOrderType === "delivery") {
 };
 
 // ===================================================================
+// Helper: التحقق مما إذا كان اسمان يشيران إلى نفس الطابعة الفعلية
+// ===================================================================
+export const isSamePrinter = (p1, p2) => {
+  if (!p1 || !p2) return false;
+  const clean = (s) => String(s).toLowerCase().replace(/\s*\(copy\s*\d+\)/gi, "").replace(/[^a-z0-9]/g, "");
+  const c1 = clean(p1);
+  const c2 = clean(p2);
+  if (!c1 || !c2) return false;
+  return c1 === c2 || c1.startsWith(c2) || c2.startsWith(c1);
+};
+
+// ===================================================================
+// Helper: استخراج مفتاح التعديلات (Addons, Variations, Extras, Excludes)
+// ===================================================================
+const getModifierKey = (item) => {
+  const stringifySimple = (arr) => {
+    if (!Array.isArray(arr)) return "";
+    return arr
+      .map((o) => o?.id || o?.name || o?.option || o?.variation || String(o))
+      .filter(Boolean)
+      .sort()
+      .join(",");
+  };
+  const addons = stringifySimple(item.addons_selected || item.addons || []);
+  const extras = stringifySimple(item.extras || []);
+  const excludes = stringifySimple(item.excludes || []);
+
+  const variationOptions = (item.variation_selected || item.variations || [])
+    .flatMap((group) => {
+      if (!group || !Array.isArray(group.options)) return [];
+      return group.options.map((opt) => opt?.id || opt?.name || "");
+    })
+    .filter(Boolean)
+    .sort()
+    .join(",");
+
+  return `${variationOptions}|${addons}|${extras}|${excludes}`;
+};
+
+// ===================================================================
+// Helper: تجميع أصناف المطبخ حسب الطابعة الفعلية لمنع تكرار الطباعة
+// ===================================================================
+const consolidateKitchensByPrinter = (kitchens, receiptData, apiResponse) => {
+  if (!Array.isArray(kitchens) || kitchens.length === 0) return [];
+  const printerGroups = [];
+
+  for (const kitchen of kitchens) {
+    if (!kitchen.print_name || kitchen.print_status !== 1 || !kitchen.order?.length) continue;
+
+    const currentPrinterName = String(kitchen.print_name).trim();
+    if (!currentPrinterName || currentPrinterName.toLowerCase() === "null") continue;
+
+    let group = printerGroups.find(g => isSamePrinter(g.printerName, currentPrinterName));
+    if (!group) {
+      group = {
+        printerName: currentPrinterName,
+        itemsMap: new Map(),
+      };
+      printerGroups.push(group);
+    } else {
+      // تفضيل الاسم الأكثر تحديداً/تفصيلاً (مثل XP-80C بدلاً من XP)
+      if (currentPrinterName.length > group.printerName.length) {
+        group.printerName = currentPrinterName;
+      }
+    }
+
+    kitchen.order.forEach((item) => {
+      const modifierKey = getModifierKey(item);
+      const itemId = item.id || item.product_id || item._id || "unknown";
+      const itemNotes = item.notes || item.note || "";
+      const baseKey = `${itemId}|${itemNotes}`;
+      const fullKey = `${baseKey}|${modifierKey}`;
+
+      if (group.itemsMap.has(fullKey)) {
+        const existing = group.itemsMap.get(fullKey);
+        const isSameCart = item.cart_id && existing.cart_id && String(item.cart_id) === String(existing.cart_id);
+        const isSameProd = itemId !== "unknown" && existing.id === itemId;
+
+        // إذا كان الصنف قادم من مطبخ آخر لنفس الطلب (Fanout من الباك اند)، لا نضاعف الكمية
+        if (!isSameCart && !isSameProd) {
+          existing.qty += Number(item.count || item.qty || 1);
+        }
+      } else {
+        const original = (receiptData?.items || []).find(
+          (o) => (o.id && o.id == itemId) || (o.product_id && o.product_id == itemId)
+        );
+        group.itemsMap.set(fullKey, {
+          id: itemId,
+          cart_id: item.cart_id,
+          name: item.name || item.product_name || original?.name || "صنف غير معروف",
+          qty: Number(item.count || item.qty || 1),
+          notes: itemNotes || original?.notes || "",
+          addons: item.addons_selected || item.addons || original?.addons || [],
+          extras: item.extras || original?.extras || [],
+          excludes: item.excludes || original?.excludes || [],
+          variations: item.variation_selected || item.variations || original?.variations || [],
+        });
+      }
+    });
+  }
+
+  return printerGroups.map(group => {
+    const items = Array.from(group.itemsMap.values());
+    const orderCount = items.reduce((sum, it) => sum + Number(it.qty || 1), 0);
+    const kitchenReceiptData = {
+      ...receiptData,
+      items,
+      orderCount,
+      orderNote: apiResponse?.order_note || receiptData?.orderNote || "",
+    };
+    const html = getReceiptHTML(kitchenReceiptData, { design: "kitchen", type: "kitchen" });
+    return {
+      printerName: group.printerName,
+      html,
+    };
+  });
+};
+
+// ===================================================================
 // 9. دالة طباعة المطبخ فقط (Case 2: Prepare & Pending)
 // ===================================================================
 export const printKitchenOnly = async (receiptData, apiResponse, callback) => {
   try {
     const kitchens = apiResponse?.kitchen_items || [];
-    const allHtmlToPrint = [];
-
-    for (const kitchen of kitchens) {
-      if (
-        !kitchen.print_name ||
-        kitchen.print_status !== 1 ||
-        !kitchen.order?.length
-      )
-        continue;
-
-      // === التجميع حسب id + notes + selected variation options + addons + extras + excludes ===
-      const grouped = new Map();
-      const getModifierKey = (item) => {
-        const stringifySimple = (arr) => {
-          if (!Array.isArray(arr)) return "";
-          return arr
-            .map((o) => o.id || o.name || o.option || o.variation || String(o))
-            .filter(Boolean)
-            .sort()
-            .join(",");
-        };
-        const addons = stringifySimple(item.addons_selected || item.addons || []);
-        const extras = stringifySimple(item.extras || []);
-        const excludes = stringifySimple(item.excludes || []);
-
-        const variationOptions = (item.variation_selected || item.variations || [])
-          .flatMap((group) => {
-            if (!group || !Array.isArray(group.options)) return [];
-            return group.options.map((opt) => opt.id || opt.name || "");
-          })
-          .filter(Boolean)
-          .sort()
-          .join(",");
-
-        return `${variationOptions}|${addons}|${extras}|${excludes}`;
-      };
-
-      kitchen.order.forEach((item) => {
-        const modifierKey = getModifierKey(item);
-        const baseKey = `${item.id || item.product_id || "unknown"}|${item.notes || "no-notes"}`;
-        const fullKey = `${baseKey}|${modifierKey}`;
-        if (!grouped.has(fullKey)) {
-          grouped.set(fullKey, {
-            ...item,
-            qty: 0,
-          });
-        }
-        const entry = grouped.get(fullKey);
-        entry.qty += Number(item.count || item.qty || 1);
-      });
-
-      const kitchenItems = Array.from(grouped.values()).map((group) => {
-        const original = receiptData.items.find(
-          (o) => o.id == group.id || o.id == group.product_id
-        );
-        return {
-          qty: group.qty,
-          name: group.name || original?.name || "غير معروف",
-          notes: group.notes || original?.notes || "",
-          addons: group.addons_selected || original?.addons || [],
-          extras: group.extras || original?.extras || [],
-          excludes: group.excludes || original?.excludes || [],
-          variations: group.variation_selected || original?.variations || [],
-          id: group.id || group.product_id,
-        };
-      });
-
-      const kitchenReceiptData = {
-        ...receiptData,
-        items: kitchenItems,
-        orderCount: kitchen.order_count || kitchen.order.reduce((sum, item) => sum + Number(item.count || 1), 0),
-        orderNote: apiResponse?.order_note || receiptData.orderNote || "",
-      };
-
-      const kitchenHtml = getReceiptHTML(kitchenReceiptData, {
-        design: "kitchen",
-        type: "kitchen",
-      });
-
-      // Prevent pushing duplicate receipts for the same printer
-      const isDuplicate = allHtmlToPrint.some(
-        job => job.printerName === kitchen.print_name && job.html === kitchenHtml
-      );
-
-      if (!isDuplicate) {
-        allHtmlToPrint.push({ html: kitchenHtml, printerName: kitchen.print_name });
-      }
-    }
+    const printerJobs = consolidateKitchensByPrinter(kitchens, receiptData, apiResponse);
+    const allHtmlToPrint = printerJobs.map(job => ({
+      html: job.html,
+      printerName: job.printerName,
+    }));
 
     // --- التنفيذ النهائي ---
     if (allHtmlToPrint.length > 0) {
@@ -1602,26 +1638,9 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
     // --- 2. منطق طباعة المطبخ ---
     if (!shouldSkipKitchenPrint) {
       const kitchens = apiResponse?.kitchen_items || [];
-      for (const kitchen of kitchens) {
-        if (!kitchen.print_name || kitchen.print_status !== 1 || !kitchen.order?.length) continue;
-
-        const kitchenReceiptData = {
-          ...receiptData,
-          items: formatKitchenItems(kitchen.order, receiptData),
-          orderCount: kitchen.order_count || kitchen.order.reduce((sum, item) => sum + Number(item.count || 1), 0),
-          orderNote: apiResponse?.order_note || receiptData.orderNote || "",
-        };
-
-        const kitchenHtml = getReceiptHTML(kitchenReceiptData, { design: "kitchen", type: "kitchen" });
-
-        // Prevent pushing duplicate receipts for the same printer
-        const isDuplicate = electronJobs.some(
-          job => job.type === "kitchen" && job.printerName === kitchen.print_name && job.html === kitchenHtml
-        );
-
-        if (!isDuplicate) {
-          electronJobs.push({ html: kitchenHtml, printerName: kitchen.print_name, type: "kitchen" });
-        }
+      const kitchenJobs = consolidateKitchensByPrinter(kitchens, receiptData, apiResponse);
+      for (const job of kitchenJobs) {
+        electronJobs.push({ html: job.html, printerName: job.printerName, type: "kitchen" });
       }
     }
     if (isMobile) {
