@@ -107,6 +107,11 @@ export default function Navbar() {
       userData?.dine_in === true,
   };
 
+  const canShowNotifications =
+    permissions.online_order ||
+    Boolean(localStorage.getItem("token")) ||
+    Boolean(userData?.id);
+
   const currentTab = localStorage.getItem("tab") || "take_away";
   const isArabic = i18n.language === "ar";
 
