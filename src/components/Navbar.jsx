@@ -67,8 +67,7 @@ export default function Navbar() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
-  const [isRealtimeConnected, setIsRealtimeConnected] = useState(null);
-  const fallbackIntervalRef = useRef(null);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const notifiedIdsRef = useRef(new Set());
   const queryClient = useQueryClient();
   const [cashAmount, setCashAmount] = useState("");
@@ -86,15 +85,32 @@ export default function Navbar() {
   const isMobile = useIsMobile();
   const userData = JSON.parse(localStorage.getItem("user") || "{}");
   const permissions = {
-    online_order: userData.online_order === 1,
-    take_away: userData.take_away === 1,
-    delivery: userData.delivery === 1,
-    dine_in: userData.dine_in === 1,
+    online_order:
+      Number(userData?.online_order) === 1 ||
+      userData?.online_order === "1" ||
+      userData?.online_order === 1 ||
+      userData?.online_order === true,
+    take_away:
+      Number(userData?.take_away) === 1 ||
+      userData?.take_away === "1" ||
+      userData?.take_away === 1 ||
+      userData?.take_away === true,
+    delivery:
+      Number(userData?.delivery) === 1 ||
+      userData?.delivery === "1" ||
+      userData?.delivery === 1 ||
+      userData?.delivery === true,
+    dine_in:
+      Number(userData?.dine_in) === 1 ||
+      userData?.dine_in === "1" ||
+      userData?.dine_in === 1 ||
+      userData?.dine_in === true,
   };
 
   const currentTab = localStorage.getItem("tab") || "take_away";
   const isArabic = i18n.language === "ar";
 
+  // ─── Audio Setup ───────────────────────────────────────────────────────────
   useEffect(() => {
     const storedSound = localStorage.getItem("notification_sound") || FALLBACK_SOUND;
     audioRef.current = new Audio(storedSound);
@@ -138,6 +154,7 @@ export default function Navbar() {
     }
   }, [playNotificationSound, t]);
 
+  // ─── Process incoming order (deduplicate + notify) ─────────────────────────
   const processNewOrder = useCallback((orderIdStr) => {
     if (!orderIdStr) return;
     let notifiedSession = new Set();
@@ -163,123 +180,65 @@ export default function Navbar() {
       return [orderIdStr, ...prev];
     });
     setNotificationCount((prev) => prev + 1);
-
     notifyUser(orderIdStr);
-
-    setTimeout(() => {
-      queryClient.invalidateQueries();
-    }, 500);
+    setTimeout(() => { queryClient.invalidateQueries(); }, 500);
   }, [notifyUser, queryClient]);
 
-  const fetchNotificationFallback = useCallback(async () => {
-    if (!permissions.online_order) return;
-    try {
-      const token = localStorage.getItem("token");
-      const baseUrl = import.meta.env.VITE_API_BASE_URL;
-      const response = await axios.get(`${baseUrl}cashier/orders/notifications`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.status !== 200 || !response.data) return;
-
-      const rawOrders = response.data.orders || [];
-      const count = response.data.orders_count ?? rawOrders.length;
-      const orderIds = Array.isArray(rawOrders)
-        ? rawOrders.map((item) => String(typeof item === "object" && item !== null ? item.id || item.order_id : item))
-        : [];
-
-      let notifiedSession = new Set();
-      try {
-        const stored = sessionStorage.getItem("notifiedOrders");
-        if (stored) notifiedSession = new Set(JSON.parse(stored));
-      } catch (e) {}
-
-      const hasNew = orderIds.some((id) => !notifiedSession.has(id) && !notifiedIdsRef.current.has(id));
-
-      if (hasNew && orderIds.length > 0) {
-        orderIds.forEach((id) => {
-          if (!notifiedSession.has(id) && !notifiedIdsRef.current.has(id)) {
-            processNewOrder(id);
-          }
-        });
-      }
-
-      setNotifications(orderIds);
-      setNotificationCount(count);
-    } catch (err) {
-      console.error("❌ Fallback notification API error:", err);
-    }
-  }, [permissions.online_order, processNewOrder]);
-
-  const startFallbackPolling = useCallback(() => {
-    if (fallbackIntervalRef.current) return;
-    console.warn("⚠️ Real-time disconnected — switching to API polling fallback");
-    fetchNotificationFallback();
-    fallbackIntervalRef.current = setInterval(() => {
-      fetchNotificationFallback();
-    }, 15000);
-  }, [fetchNotificationFallback]);
-
-  const stopFallbackPolling = useCallback(() => {
-    if (fallbackIntervalRef.current) {
-      clearInterval(fallbackIntervalRef.current);
-      fallbackIntervalRef.current = null;
-      console.log("✅ Real-time restored — stopped API polling fallback");
-    }
-  }, []);
-
+  // ─── Real-time only: Subscribe to newOrder.{branch_id} ────────────────────
   useEffect(() => {
-    if (!permissions.online_order) return;
+    if (!echo) {
+      console.warn("⚠️ Echo not initialised — real-time disabled");
+      setIsRealtimeConnected(false);
+      return;
+    }
 
     const branchId = localStorage.getItem("branch_id") || userData?.branch_id;
-
-    if (!echo || !branchId) {
-      console.warn("⚠️ Echo not available or branch_id missing — using API polling fallback");
-      setIsRealtimeConnected(false);
-      startFallbackPolling();
-      return () => stopFallbackPolling();
+    if (!branchId) {
+      console.warn("⚠️ branch_id missing — waiting for login");
+      return;
     }
 
     const channelName = `newOrder.${branchId}`;
     const channel = echo.channel(channelName);
 
     const handleIncomingOrder = (data) => {
-      console.log("📦 Real-time NewOrderEvent received:", data);
+      console.log("📦 Real-time event received:", data);
       let parsed = typeof data === "string" ? JSON.parse(data) : data;
+
+      // unwrap nested data if needed
       if (parsed?.data && typeof parsed.data === "string") {
-        try {
-          parsed = JSON.parse(parsed.data);
-        } catch (e) {}
+        try { parsed = JSON.parse(parsed.data); } catch (e) {}
       }
+      if (parsed?.data && typeof parsed.data === "object") {
+        parsed = parsed.data;
+      }
+
       const orderId = parsed?.order_id ?? parsed?.order?.id ?? parsed?.id ?? null;
       if (orderId) {
         processNewOrder(String(orderId));
+        window.dispatchEvent(new CustomEvent("new-order-received", { detail: { orderId: String(orderId) } }));
       }
     };
 
-    channel.listen(".NewOrderEvent", handleIncomingOrder);
-    console.log(`🔌 Subscribed to Reverb channel: ${channelName} | Event: .NewOrderEvent`);
+    // Listen for both event name formats (with dot prefix and without)
+    [".NewOrderEvent", "NewOrderEvent"].forEach((evt) =>
+      channel.listen(evt, handleIncomingOrder)
+    );
+    console.log(`🔌 Subscribed to Reverb: ${channelName}`);
 
     const pusher = echo.connector?.pusher;
     if (pusher) {
       const onConnected = () => {
-        console.log("✅ Reverb WebSocket connected — real-time active, no polling");
         setIsRealtimeConnected(true);
-        stopFallbackPolling();
+        console.log("✅ Reverb connected — real-time active");
       };
-
       const onDisconnected = () => {
-        console.warn("❌ Reverb WebSocket disconnected — starting fallback polling");
         setIsRealtimeConnected(false);
-        startFallbackPolling();
+        console.warn("❌ Reverb disconnected");
       };
-
       const onFailed = () => {
-        console.error("🚫 Reverb WebSocket failed — starting fallback polling");
         setIsRealtimeConnected(false);
-        startFallbackPolling();
+        console.error("🚫 Reverb failed");
       };
 
       pusher.connection.bind("connected", onConnected);
@@ -287,38 +246,27 @@ export default function Navbar() {
       pusher.connection.bind("failed", onFailed);
       pusher.connection.bind("unavailable", onDisconnected);
 
-      const currentState = pusher.connection.state;
-      console.log("🔍 Initial Reverb connection state:", currentState);
-      if (currentState === "connected") {
-        setIsRealtimeConnected(true);
-      } else if (["disconnected", "failed", "unavailable"].includes(currentState)) {
-        setIsRealtimeConnected(false);
-        startFallbackPolling();
-      }
+      if (pusher.connection.state === "connected") setIsRealtimeConnected(true);
 
       return () => {
         pusher.connection.unbind("connected", onConnected);
         pusher.connection.unbind("disconnected", onDisconnected);
         pusher.connection.unbind("failed", onFailed);
         pusher.connection.unbind("unavailable", onDisconnected);
-        channel.stopListening(".NewOrderEvent");
+        [".NewOrderEvent", "NewOrderEvent"].forEach((evt) =>
+          channel.stopListening(evt)
+        );
         echo.leaveChannel(channelName);
-        stopFallbackPolling();
-      };
-    } else {
-      setIsRealtimeConnected(false);
-      startFallbackPolling();
-      return () => {
-        channel.stopListening(".NewOrderEvent");
-        echo.leaveChannel(channelName);
-        stopFallbackPolling();
       };
     }
-  }, [permissions.online_order, userData?.branch_id, processNewOrder, startFallbackPolling, stopFallbackPolling]);
 
-  useEffect(() => {
-    return () => stopFallbackPolling();
-  }, [stopFallbackPolling]);
+    return () => {
+      [".NewOrderEvent", "NewOrderEvent"].forEach((evt) =>
+        channel.stopListening(evt)
+      );
+      echo.leaveChannel(channelName);
+    };
+  }, [userData?.branch_id, processNewOrder]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -814,7 +762,7 @@ export default function Navbar() {
               )}
 
             {/* Notifications Dropdown */}
-            {permissions.online_order && (
+            {canShowNotifications && (
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
