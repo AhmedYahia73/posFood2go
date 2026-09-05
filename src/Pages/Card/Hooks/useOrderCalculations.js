@@ -18,7 +18,7 @@ export function useOrderCalculations(
       // 1. حساب الـ extras
       const selectedExtras = item.selectedExtras || [];
       if (selectedExtras.length > 0) {
-        const allExtrasCatalog = item.allExtras || [];
+        const allExtrasCatalog = [...(item.allExtras || []), ...(item.addons || [])];
         selectedExtras.forEach(id => {
           const extra = allExtrasCatalog.find(e => String(e.id) === String(id));
           if (extra) {
@@ -85,7 +85,7 @@ export function useOrderCalculations(
       // 1. حساب ضريبة الـ extras
       const selectedExtras = item.selectedExtras || [];
       if (selectedExtras.length > 0) {
-        const allExtrasCatalog = item.allExtras || [];
+        const allExtrasCatalog = [...(item.allExtras || []), ...(item.addons || [])];
         selectedExtras.forEach(id => {
           const extra = allExtrasCatalog.find(e => String(e.id) === String(id));
           if (extra) {

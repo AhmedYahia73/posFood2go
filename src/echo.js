@@ -1,17 +1,25 @@
 import Echo from "laravel-echo";
 import Pusher from "pusher-js";
 
-window.Pusher = Pusher;
+const appKey = import.meta.env.VITE_REVERB_APP_KEY;
 
-const echo = new Echo({
-  broadcaster: "pusher",
-  key: import.meta.env.VITE_REVERB_APP_KEY || import.meta.env.VITE_PUSHER_APP_KEY,
-  wsHost: import.meta.env.VITE_REVERB_HOST || import.meta.env.VITE_PUSHER_HOST || window.location.hostname,
-  wsPort: import.meta.env.VITE_REVERB_PORT || import.meta.env.VITE_PUSHER_PORT || 6001,
-  wssPort: import.meta.env.VITE_REVERB_PORT || import.meta.env.VITE_PUSHER_PORT || 6001,
-  forceTLS: false, // لأن السيرفر local غالباً
-  disableStats: true,
-  enabledTransports: ["ws", "wss"],
-});
+let echo = null;
+
+if (appKey) {
+  window.Pusher = Pusher;
+
+  echo = new Echo({
+    broadcaster: "reverb",
+    key: appKey,
+    wsHost: import.meta.env.VITE_REVERB_HOST,
+    wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
+    wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
+    forceTLS: import.meta.env.VITE_REVERB_SCHEME === "https",
+    enabledTransports: ["ws", "wss"],
+    disableStats: true,
+  });
+} else {
+  console.warn("[Echo] VITE_REVERB_APP_KEY is not set — real-time features are disabled.");
+}
 
 export default echo;

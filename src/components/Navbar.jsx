@@ -1,6 +1,8 @@
 // Navbar.jsx - النسخة الكاملة المعدلة مع Dropdown للإشعارات تحت الجرس (بدون إزالة أو اختصار أي شيء)
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import echo from "@/echo";
 import { usePost } from "@/Hooks/usePost";
 import { useGet } from "@/Hooks/useGet";
 import { useShift } from "@/context/ShiftContext";
@@ -64,6 +66,11 @@ export default function Navbar() {
   const [showCashInputModal, setShowCashInputModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [notifications, setNotifications] = useState([]);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(null);
+  const fallbackIntervalRef = useRef(null);
+  const notifiedIdsRef = useRef(new Set());
+  const queryClient = useQueryClient();
   const [cashAmount, setCashAmount] = useState("");
   const [pendingPassword, setPendingPassword] = useState("");
   const [endShiftReport, setEndShiftReport] = useState(null);
@@ -87,6 +94,7 @@ export default function Navbar() {
 
   const currentTab = localStorage.getItem("tab") || "take_away";
   const isArabic = i18n.language === "ar";
+
   useEffect(() => {
     const storedSound = localStorage.getItem("notification_sound") || FALLBACK_SOUND;
     audioRef.current = new Audio(storedSound);
@@ -100,43 +108,217 @@ export default function Navbar() {
       window.removeEventListener('click', enableAudio);
     };
     window.addEventListener('click', enableAudio);
-  }, []);
+    return () => window.removeEventListener('click', enableAudio);
+  }, [FALLBACK_SOUND]);
 
-  const { data: notificationsData, refetch: refetchNotifications } = useGet(
-    "cashier/orders/notifications",
-    { useCache: false }
-  );
+  const playNotificationSound = useCallback(() => {
+    if (audioRef.current) {
+      const currentStoredSound = localStorage.getItem("notification_sound") || FALLBACK_SOUND;
+      if (audioRef.current.src !== currentStoredSound) {
+        audioRef.current.src = currentStoredSound;
+      }
+      audioRef.current.play().catch((e) => console.warn("Audio play blocked:", e));
+    }
+  }, [FALLBACK_SOUND]);
 
-  const notifications = notificationsData?.orders || [];
+  const notifyUser = useCallback((orderId = null) => {
+    playNotificationSound();
+    toast.info(t("NewOrderReceived"));
 
-  useEffect(() => {
-    if (notificationsData?.orders_count !== undefined) {
-      const newCount = notificationsData.orders_count;
+    if (document.hidden && Notification.permission === "granted") {
+      try {
+        new Notification(`${t("NewOrderReceived")} #${orderId}`, {
+          body: t("Check your dashboard for details"),
+          tag: String(orderId),
+          renotify: true,
+        });
+      } catch (e) {
+        console.error("Notification error:", e);
+      }
+    }
+  }, [playNotificationSound, t]);
 
-      if (newCount > previousCountRef.current) {
-        if (audioRef.current) {
-          const currentStoredSound = localStorage.getItem("notification_sound") || FALLBACK_SOUND;
-          if (audioRef.current.src !== currentStoredSound) {
-            audioRef.current.src = currentStoredSound;
+  const processNewOrder = useCallback((orderIdStr) => {
+    if (!orderIdStr) return;
+    let notifiedSession = new Set();
+    try {
+      const stored = sessionStorage.getItem("notifiedOrders");
+      if (stored) notifiedSession = new Set(JSON.parse(stored));
+    } catch (e) {}
+
+    if (notifiedSession.has(orderIdStr) || notifiedIdsRef.current.has(orderIdStr)) {
+      console.log("⚠️ Duplicate order ignored:", orderIdStr);
+      return;
+    }
+
+    notifiedIdsRef.current.add(orderIdStr);
+    notifiedSession.add(orderIdStr);
+    try {
+      sessionStorage.setItem("notifiedOrders", JSON.stringify([...notifiedSession]));
+    } catch (e) {}
+
+    setNotifications((prev) => {
+      const stringified = prev.map(String);
+      if (stringified.includes(orderIdStr)) return prev;
+      return [orderIdStr, ...prev];
+    });
+    setNotificationCount((prev) => prev + 1);
+
+    notifyUser(orderIdStr);
+
+    setTimeout(() => {
+      queryClient.invalidateQueries();
+    }, 500);
+  }, [notifyUser, queryClient]);
+
+  const fetchNotificationFallback = useCallback(async () => {
+    if (!permissions.online_order) return;
+    try {
+      const token = localStorage.getItem("token");
+      const baseUrl = import.meta.env.VITE_API_BASE_URL;
+      const response = await axios.get(`${baseUrl}cashier/orders/notifications`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status !== 200 || !response.data) return;
+
+      const rawOrders = response.data.orders || [];
+      const count = response.data.orders_count ?? rawOrders.length;
+      const orderIds = Array.isArray(rawOrders)
+        ? rawOrders.map((item) => String(typeof item === "object" && item !== null ? item.id || item.order_id : item))
+        : [];
+
+      let notifiedSession = new Set();
+      try {
+        const stored = sessionStorage.getItem("notifiedOrders");
+        if (stored) notifiedSession = new Set(JSON.parse(stored));
+      } catch (e) {}
+
+      const hasNew = orderIds.some((id) => !notifiedSession.has(id) && !notifiedIdsRef.current.has(id));
+
+      if (hasNew && orderIds.length > 0) {
+        orderIds.forEach((id) => {
+          if (!notifiedSession.has(id) && !notifiedIdsRef.current.has(id)) {
+            processNewOrder(id);
           }
-
-          audioRef.current.play().catch((e) => console.warn("Audio play blocked:", e));
-          toast.info(t("NewOrderReceived"));
-        }
+        });
       }
 
-      setNotificationCount(newCount);
-      previousCountRef.current = newCount;
+      setNotifications(orderIds);
+      setNotificationCount(count);
+    } catch (err) {
+      console.error("❌ Fallback notification API error:", err);
     }
-  }, [notificationsData, t]);
+  }, [permissions.online_order, processNewOrder]);
+
+  const startFallbackPolling = useCallback(() => {
+    if (fallbackIntervalRef.current) return;
+    console.warn("⚠️ Real-time disconnected — switching to API polling fallback");
+    fetchNotificationFallback();
+    fallbackIntervalRef.current = setInterval(() => {
+      fetchNotificationFallback();
+    }, 15000);
+  }, [fetchNotificationFallback]);
+
+  const stopFallbackPolling = useCallback(() => {
+    if (fallbackIntervalRef.current) {
+      clearInterval(fallbackIntervalRef.current);
+      fallbackIntervalRef.current = null;
+      console.log("✅ Real-time restored — stopped API polling fallback");
+    }
+  }, []);
 
   useEffect(() => {
     if (!permissions.online_order) return;
-    const interval = setInterval(() => {
-      refetchNotifications();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [refetchNotifications, permissions.online_order]);
+
+    const branchId = localStorage.getItem("branch_id") || userData?.branch_id;
+
+    if (!echo || !branchId) {
+      console.warn("⚠️ Echo not available or branch_id missing — using API polling fallback");
+      setIsRealtimeConnected(false);
+      startFallbackPolling();
+      return () => stopFallbackPolling();
+    }
+
+    const channelName = `newOrder.${branchId}`;
+    const channel = echo.channel(channelName);
+
+    const handleIncomingOrder = (data) => {
+      console.log("📦 Real-time NewOrderEvent received:", data);
+      let parsed = typeof data === "string" ? JSON.parse(data) : data;
+      if (parsed?.data && typeof parsed.data === "string") {
+        try {
+          parsed = JSON.parse(parsed.data);
+        } catch (e) {}
+      }
+      const orderId = parsed?.order_id ?? parsed?.order?.id ?? parsed?.id ?? null;
+      if (orderId) {
+        processNewOrder(String(orderId));
+      }
+    };
+
+    channel.listen(".NewOrderEvent", handleIncomingOrder);
+    console.log(`🔌 Subscribed to Reverb channel: ${channelName} | Event: .NewOrderEvent`);
+
+    const pusher = echo.connector?.pusher;
+    if (pusher) {
+      const onConnected = () => {
+        console.log("✅ Reverb WebSocket connected — real-time active, no polling");
+        setIsRealtimeConnected(true);
+        stopFallbackPolling();
+      };
+
+      const onDisconnected = () => {
+        console.warn("❌ Reverb WebSocket disconnected — starting fallback polling");
+        setIsRealtimeConnected(false);
+        startFallbackPolling();
+      };
+
+      const onFailed = () => {
+        console.error("🚫 Reverb WebSocket failed — starting fallback polling");
+        setIsRealtimeConnected(false);
+        startFallbackPolling();
+      };
+
+      pusher.connection.bind("connected", onConnected);
+      pusher.connection.bind("disconnected", onDisconnected);
+      pusher.connection.bind("failed", onFailed);
+      pusher.connection.bind("unavailable", onDisconnected);
+
+      const currentState = pusher.connection.state;
+      console.log("🔍 Initial Reverb connection state:", currentState);
+      if (currentState === "connected") {
+        setIsRealtimeConnected(true);
+      } else if (["disconnected", "failed", "unavailable"].includes(currentState)) {
+        setIsRealtimeConnected(false);
+        startFallbackPolling();
+      }
+
+      return () => {
+        pusher.connection.unbind("connected", onConnected);
+        pusher.connection.unbind("disconnected", onDisconnected);
+        pusher.connection.unbind("failed", onFailed);
+        pusher.connection.unbind("unavailable", onDisconnected);
+        channel.stopListening(".NewOrderEvent");
+        echo.leaveChannel(channelName);
+        stopFallbackPolling();
+      };
+    } else {
+      setIsRealtimeConnected(false);
+      startFallbackPolling();
+      return () => {
+        channel.stopListening(".NewOrderEvent");
+        echo.leaveChannel(channelName);
+        stopFallbackPolling();
+      };
+    }
+  }, [permissions.online_order, userData?.branch_id, processNewOrder, startFallbackPolling, stopFallbackPolling]);
+
+  useEffect(() => {
+    return () => stopFallbackPolling();
+  }, [stopFallbackPolling]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -430,12 +612,15 @@ export default function Navbar() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      refetchNotifications();
+      setNotifications((prev) => prev.filter((id) => String(id) !== String(orderId)));
+      setNotificationCount((prev) => Math.max(0, prev - 1));
       navigate(`/online-orders/${orderId}`);
       setIsDropdownOpen(false);
     } catch (err) {
       console.error("Error marking order as read:", err);
       toast.error("فشل في تحديث حالة الطلب");
+      setNotifications((prev) => prev.filter((id) => String(id) !== String(orderId)));
+      setNotificationCount((prev) => Math.max(0, prev - 1));
       navigate(`/online-orders/${orderId}`);
       setIsDropdownOpen(false);
     }

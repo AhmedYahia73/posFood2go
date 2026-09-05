@@ -177,12 +177,15 @@ const ItemRow = ({
     </span>
   ))}
 
-  {/* 3. عرض الـ Extras */}
-  {item.selectedExtras?.map((exId, i) => (
-    <span key={`extra-${i}`} className="text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded border border-green-100 whitespace-nowrap">
-      +{item.allExtras?.find(e => e.id === exId)?.name || 'Extra'}
-    </span>
-  ))}
+  {/* 3. عرض الـ Extras والـ Addons المحفوظة في selectedExtras */}
+  {item.selectedExtras?.map((exId, i) => {
+    const extraObj = [...(item.allExtras || []), ...(item.addons || [])].find(e => String(e.id) === String(exId));
+    return (
+      <span key={`extra-${i}`} className="text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded border border-green-100 whitespace-nowrap">
+        +{extraObj?.name || 'Extra'}
+      </span>
+    );
+  })}
 </div>
       {/* ملاحظات المنتج (إن وجدت) */}
       {item.notes && (
