@@ -2,10 +2,27 @@
 import axios from "axios";
 import { toast } from "react-toastify";
 
-const baseURL = import.meta.env.VITE_API_BASE_URL;
+const baseURL = (window.API_BASE_URL || import.meta.env.VITE_API_BASE_URL);
 
 const axiosInstance = axios.create({
   baseURL,
+  transformResponse: [
+    (data) => {
+      if (typeof data === "string") {
+        try {
+          // Prevent precision loss by quoting large IDs like cart_id or id before JSON.parse
+          const processedData = data.replace(
+            /("id":|"cart_id":)\s*(\d{15,})/g,
+            '$1"$2"'
+          );
+          return JSON.parse(processedData);
+        } catch (e) {
+          return data;
+        }
+      }
+      return data;
+    },
+  ],
 });
 
 // ✅ Interceptor بيراقب كل responses

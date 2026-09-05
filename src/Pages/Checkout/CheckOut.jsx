@@ -26,6 +26,11 @@ import {
   calculateTotalItemDiscounts,
 } from "./processProductItem";
 import {
+  calculateProductTimePrice,
+  elapsedMinutes as calcElapsedMinutes,
+} from "../utils/calculateProductTimePrice";
+
+import {
   prepareReceiptData,
   printReceiptSilently,
 } from "../utils/printReceipt";
@@ -58,7 +63,7 @@ const CheckOut = ({
   const tableId = localStorage.getItem("table_id") || null;
   const [appliedDiscount, setAppliedDiscount] = useState(0);
   const isSubmitting = useRef(false);
-  const baseUrl = import.meta.env.VITE_API_BASE_URL;
+  const baseUrl = (window.API_BASE_URL || import.meta.env.VITE_API_BASE_URL);
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const lastSelectedGroup = localStorage.getItem("last_selected_group");
@@ -102,7 +107,7 @@ const CheckOut = ({
       qzInstance.security.setSignaturePromise((toSign) => {
         return (resolve, reject) => {
           // تأكدي إن الـ baseUrl متهيأة صح (تنتهي بـ /)
-          fetch(`${baseUrl}api/sign-qz-request?request=${toSign}`)
+          fetch(`${baseUrl}sign-qz-request?request=${toSign}`)
             .then((res) => res.text())
             .then(resolve)
             .catch(reject);
@@ -192,9 +197,9 @@ const CheckOut = ({
     const users = dueUsersData?.users || [];
     return users.filter(
       (c) =>
-        c.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
-        c.phone.includes(customerSearchQuery) ||
-        (c.phone_2 && c.phone_2.includes(customerSearchQuery))
+        c?.name?.toLowerCase().includes(customerSearchQuery?.toLowerCase() || "") ||
+        c?.phone?.includes(customerSearchQuery) ||
+        (c?.phone_2 && c.phone_2.includes(customerSearchQuery))
     );
   }, [dueUsersData, customerSearchQuery]);
 
@@ -492,7 +497,26 @@ const CheckOut = ({
     }
 
     const safeOrderItems = Array.isArray(orderItems) ? orderItems : [];
-    const itemsForPayload = safeOrderItems.map((item) => ({
+
+    // ── Auto-end any running product_time sessions ─────────────────────────
+    const now = Date.now();
+    const resolvedItems = safeOrderItems.map((item) => {
+      if (item.product_time && !item.time_ended) {
+        const mins    = calcElapsedMinutes(item.time_start || now, now);
+        const computed = calculateProductTimePrice(item, mins);
+        return {
+          ...item,
+          time_ended:      true,
+          time_end:        now,
+          elapsed_minutes: mins,
+          totalPrice:      computed,
+          modalCalculatedPrice: computed,
+        };
+      }
+      return item;
+    });
+
+    const itemsForPayload = resolvedItems.map((item) => ({
       ...item,
       count: (item.weight_status === 1 || item.weight_status === "1")
         ? (item.quantity || item.count)

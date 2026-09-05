@@ -3,10 +3,16 @@
  * النسخة المُحدثة - الاعتماد على final_price من الباك إند
  */
 export const calculateItemUnitPrice = (baseProduct, selectedVariation = {}, selectedExtras = null) => {
-  // 1. استخدام final_price مباشرة من الباك إند (يشمل كل الحسابات)
-  let finalPrice = parseFloat(baseProduct.final_price || 0);
+  const isTaxIncluded = 
+    baseProduct?.taxes === "included" || 
+    baseProduct?.taxes?.setting === "included" || 
+    baseProduct?.tax_obj?.setting === "included";
+
+  let finalPrice = isTaxIncluded
+    ? parseFloat(baseProduct.final_price || baseProduct.price_after_tax || baseProduct.price || 0)
+    : parseFloat(baseProduct.price_after_discount || baseProduct.price || baseProduct.final_price || 0);
   
-  // في حالة المنتجات البسيطة بدون variations أو extras، نرجع final_price مباشرة
+  // في حالة المنتجات البسيطة بدون variations أو extras، نرجع finalPrice مباشرة
   if ((!baseProduct.variations || baseProduct.variations.length === 0) && 
       (!selectedExtras || selectedExtras.length === 0) &&
       (!baseProduct.addons || baseProduct.addons.length === 0)) {
@@ -23,10 +29,12 @@ export const calculateItemUnitPrice = (baseProduct, selectedVariation = {}, sele
       ...(baseProduct.addons || [])
     ];
     selectedExtras.forEach(id => {
-      const extra = allPossibleAddons.find(e => e.id === parseInt(id));
+      const extra = allPossibleAddons.find(e => String(e.id) === String(id));
       if (extra) {
-        // استخدام final_price للـ extra إذا كان متوفراً
-        additions += parseFloat(extra.final_price || extra.price || 0);
+        const priceToUse = isTaxIncluded
+          ? parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)
+          : parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+        additions += priceToUse;
       }
     });
   } else {
@@ -37,9 +45,12 @@ export const calculateItemUnitPrice = (baseProduct, selectedVariation = {}, sele
     if (storedExtras.length > 0) {
       const allExtrasCatalog = baseProduct.allExtras || [];
       storedExtras.forEach(id => {
-        const extra = allExtrasCatalog.find(e => e.id === parseInt(id));
+        const extra = allExtrasCatalog.find(e => String(e.id) === String(id));
         if (extra) {
-          additions += parseFloat(extra.final_price || extra.price || 0);
+          const priceToUse = isTaxIncluded
+            ? parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)
+            : parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+          additions += priceToUse;
         }
       });
     }
@@ -49,7 +60,10 @@ export const calculateItemUnitPrice = (baseProduct, selectedVariation = {}, sele
     storedAddons.forEach(addon => {
       if (addon.addon_id !== undefined) {
         const qty = parseFloat(addon.quantity || addon.count || 1);
-        additions += parseFloat(addon.price || 0) * qty;
+        const addonP = isTaxIncluded
+          ? parseFloat(addon.final_price || addon.price_after_tax || addon.price || 0)
+          : parseFloat(addon.price || addon.price_after_discount || addon.final_price || 0);
+        additions += addonP * qty;
       }
     });
   }

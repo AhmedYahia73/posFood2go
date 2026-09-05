@@ -472,6 +472,7 @@ export default function Card({
         orderType={orderType}
         subTotal={calculations.subTotal}
         totalTax={calculations.totalTax}
+        totalExcludedTax={calculations.totalExcludedTax}
         apiTotalDiscount={calculations.totalDiscount}
         totalOtherCharge={calculations.totalOtherCharge}
         serviceFeeData={serviceFeeData}

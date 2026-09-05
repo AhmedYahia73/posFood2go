@@ -52,7 +52,13 @@ const PrintableReport = React.forwardRef(
       actual_total,
       total_amount,
       order_count
-    } = reportData;
+    } = reportData || {};
+
+    const financialAccountsList = Array.isArray(financial_accounts)
+      ? financial_accounts
+      : (financial_accounts && typeof financial_accounts === "object"
+          ? Object.values(financial_accounts)
+          : []);
 
     const cashShortage = (actual_total || 0) - (net_cash_drawer || 0);
 
@@ -115,9 +121,9 @@ const PrintableReport = React.forwardRef(
             </div>
 
             {/* Payment Methods */}
-            {financial_accounts?.map((acc, idx) => (
+            {financialAccountsList.map((acc, idx) => (
               <div className="data-row" key={idx}>
-                <span>{acc.financial_name}</span>
+                <span>{acc.financial_name || "Cash"}</span>
                 <span>{formatAmount((acc.total_amount_dine_in || 0) + (acc.total_amount_take_away || 0) + (acc.total_amount_delivery || 0))}</span>
               </div>
             ))}
@@ -227,19 +233,19 @@ export default function EndShiftReportModal({
     }
   }, [reportData, reportData?.report_role, onConfirmClose]);
 
-  // تجهيز بيانات الـ Header من الـ LocalStorage
+  // تجهيز بيانات الـ Header من الـ LocalStorage و reportData
   const shiftInfo = useMemo(() => {
     const localeDateConfig = isArabic ? "ar-EG" : "en-US";
+    const currentStoredUser = getSafeJSON("user");
+    const currentShiftStartTimeRaw = localStorage.getItem("shiftStartTime");
+    const currentShiftStartTime = getSafeJSON("shiftStartTime");
 
     let formattedOpenedAt = "N/A";
 
-    // 1. إذا كان التاريخ مخزناً داخل Object (الحالة المثالية)
-    if (shiftStartTime?.created_at) {
-      formattedOpenedAt = new Date(shiftStartTime.created_at).toLocaleString(localeDateConfig);
-    }
-    // 2. إذا كان التاريخ مخزناً كنص مباشر في localStorage (مثل الحالة التي أرسلتها)
-    else if (typeof shiftStartTimeRaw === "string" && shiftStartTimeRaw !== "" && !shiftStartTimeRaw.includes("[object")) {
-      const date = new Date(shiftStartTimeRaw);
+    if (currentShiftStartTime?.created_at) {
+      formattedOpenedAt = new Date(currentShiftStartTime.created_at).toLocaleString(localeDateConfig);
+    } else if (typeof currentShiftStartTimeRaw === "string" && currentShiftStartTimeRaw !== "" && !currentShiftStartTimeRaw.includes("[object")) {
+      const date = new Date(currentShiftStartTimeRaw);
       if (!isNaN(date.getTime())) {
         formattedOpenedAt = date.toLocaleString(localeDateConfig);
       }
@@ -247,20 +253,25 @@ export default function EndShiftReportModal({
 
     return {
       printedAt: new Date().toLocaleString(localeDateConfig),
-      // تأكد من استخدام Optional Chaining (?) دائماً لتجنب أخطاء الـ Object
-      cashierName: reportData?.shift?.employee_name || shiftStartTime?.user_name || userData?.user_name || "N/A",
-      branchName: reportData?.shift?.branch_name || shiftStartTime?.branch?.name || userData?.branch?.name || "Main Branch",
-      posMachine: reportData?.shift?.pos_name || "POS-1",
-      openedAt: reportData?.shift?.opened_at || formattedOpenedAt,
-      closedAt: reportData?.shift?.closed_at || new Date().toLocaleString(localeDateConfig),
+      cashierName: reportData?.shift?.employee_name || currentShiftStartTime?.user_name || currentStoredUser?.user_name || currentStoredUser?.name || "Cashier",
+      branchName: reportData?.shift?.branch_name || currentShiftStartTime?.branch?.name || currentStoredUser?.branch?.name || "Main Branch",
+      posMachine: reportData?.shift?.pos_name || currentStoredUser?.cashier?.name || "POS-1",
+      openedAt: reportData?.shift?.opened_at ? new Date(reportData.shift.opened_at).toLocaleString(localeDateConfig) : formattedOpenedAt,
+      closedAt: reportData?.shift?.closed_at ? new Date(reportData.shift.closed_at).toLocaleString(localeDateConfig) : new Date().toLocaleString(localeDateConfig),
     };
-    // أضف المتغيرات الجديدة لمصفوفة الاعتمادات لضمان التحديث
-  }, [reportData, isArabic, shiftStartTime, shiftStartTimeRaw, userData]);
+  }, [reportData, isArabic]);
 
   if (!reportData || reportData.report_role === "unactive") return null;
 
-  const { financial_accounts, start_amount, expenses_total, void_order_sum, net_cash_drawer, actual_total, total_amount, order_count } = reportData;
-  const cashShortage = (actual_total || 0) - (net_cash_drawer || 0);
+  const { financial_accounts, start_amount, expenses_total, void_order_sum, net_cash_drawer, actual_total, total_amount, order_count } = reportData || {};
+
+  const financialAccountsList = Array.isArray(financial_accounts)
+    ? financial_accounts
+    : (financial_accounts && typeof financial_accounts === "object"
+        ? Object.values(financial_accounts)
+        : []);
+
+  const cashShortage = (reportData?.gap !== undefined ? reportData.gap : (actual_total || 0) - (net_cash_drawer || 0));
   const netAmountCalculated = (total_amount || 0) - (void_order_sum || 0) - (expenses_total || 0);
 
   const formatAmount = (amount, currency = getCurrencySymbol()) => {
@@ -332,11 +343,11 @@ export default function EndShiftReportModal({
               </div>
 
               <div className="border-s-4 border-blue-500 ps-3 ms-1 my-2 space-y-2">
-                {financial_accounts?.map((acc, idx) => {
+                {financialAccountsList.map((acc, idx) => {
                   const accTotal = (acc.total_amount_dine_in || 0) + (acc.total_amount_take_away || 0) + (acc.total_amount_delivery || 0);
                   return (
                     <div key={idx} className="flex justify-between text-sm">
-                      <span className="text-gray-600">{acc.financial_name}</span>
+                      <span className="text-gray-600">{acc.financial_name || "Cash"}</span>
                       <span className="font-semibold">{formatAmount(accTotal)}</span>
                     </div>
                   );

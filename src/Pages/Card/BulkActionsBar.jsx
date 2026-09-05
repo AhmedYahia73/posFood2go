@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { PREPARATION_STATUSES, statusOrder } from "./constants";
 import CaptainSelectionModal from "../CaptainSelectionModal";
-import { prepareReceiptData, printReceiptSilently } from "../utils/printReceipt";
+import { prepareReceiptData, printReceiptSilently, printKitchenOnly } from "../utils/printReceipt";
 export default function BulkActionsBar({
   bulkStatus,
   setBulkStatus,
@@ -43,22 +43,30 @@ export default function BulkActionsBar({
 
       // نتحقق إن السيرفر رد ببيانات المطبخ فعلاً
       if (response && response.kitchen_items) {
+        const now = new Date();
+        const dateFormatted = now.toLocaleDateString("en-GB");
+        const timeFormatted = now.toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        });
 
         // 1. تجهيز بيانات الإيصال الأساسية
         const receiptData = {
           table_number: response.table_number || "N/A",
+          table: response.table_number || "N/A",
           orderType: "dine_in",
           success: response.success,
-          // هنا بنبعت الـ kitchen_items زي ما هي جاية من السيرفر
-          kitchen_items: response.kitchen_items
+          kitchen_items: response.kitchen_items,
+          invoiceNumber: "", // رقم الأوردر أثناء تغيير الحالة يظهر فاضي
+          dateFormatted,
+          timeFormatted,
         };
 
-        // 2. استدعاء الطباعة مباشرة
-        // دالة printReceiptSilently هي اللي هتلف جواه وتطبع لكل طابعة الـ IP بتاعها
-        printReceiptSilently(receiptData, response, () => {
+        // 2. استدعاء طباعة المطبخ فقط مباشرة
+        printKitchenOnly(receiptData, response, () => {
           console.log("✅ تمت عملية إرسال أوامر الطباعة للمطابخ");
         });
-
       }
     } catch (error) {
       console.error("Print Process Error:", error);

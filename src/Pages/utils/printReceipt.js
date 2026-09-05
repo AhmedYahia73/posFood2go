@@ -425,7 +425,8 @@ ${moduleLine}
           .filter(Boolean)
           .join("");
 
-        // ✅ Variations - نعرض اسم الخيار المختار فقط
+        // ✅ Variations - نعرض اسم الجروب + الـ options مع حساب أسعار الخيارات
+        let variationsUnitPrice = 0;
         const variationsHTML = (() => {
           const getVariationsArray = (v) =>
             Array.isArray(v)
@@ -437,15 +438,27 @@ ${moduleLine}
           return getVariationsArray(item.variations)
             .flatMap((group) => {
               if (!group) return [];
+              const groupName = group.name || group.variation || "";
               if (group.options && Array.isArray(group.options)) {
-                const optionText = group.options
-                  .map((opt) => (typeof opt === "object" ? opt.name : opt))
-                  .join(", ");
-                return [optionText];
+                return group.options.map((opt) => {
+                  const optName = typeof opt === "object" ? (opt.name || opt.option || "") : String(opt);
+                  const optPrice = typeof opt === "object" ? Number(opt.price || opt.final_price || opt.additional_price || 0) : 0;
+                  const optWeight = typeof opt === "object" && opt.weight ? Number(opt.weight) : 1;
+                  const optTotal = optPrice * optWeight;
+                  variationsUnitPrice += optTotal;
+
+                  let priceStr = "";
+                  if (optTotal > 0) {
+                    priceStr = optWeight > 1
+                      ? ` (${optWeight} × ${optPrice.toFixed(2)})`
+                      : ` (${optTotal.toFixed(2)})`;
+                  }
+                  const text = groupName ? `${groupName}: ${optName}${priceStr}` : `${optName}${priceStr}`;
+                  return `<div class="addon-row" style="color:#555;">• ${text}</div>`;
+                });
               }
               return [];
             })
-            .map((text) => `<div class="addon-row" style="color:#555;">• ${text}</div>`)
             .join("");
         })();
 
@@ -462,8 +475,8 @@ ${moduleLine}
           ? `<div style="margin-top: 6px; font-weight: bold; font-size: 13px; color: #d00;">(${item.notes})</div>`
           : "";
 
-        // ✅ السعر النهائي للوحدة شاملاً الإضافات (زي الكارت)
-        const finalUnitPrice = baseUnitPrice + addonsUnitPrice + extrasUnitPrice;
+        // ✅ السعر النهائي للوحدة شاملاً المنتج الأساسي + الخيارات + الإضافات + الإكسترا
+        const finalUnitPrice = baseUnitPrice + variationsUnitPrice + addonsUnitPrice + extrasUnitPrice;
 
         // ✅ الإجمالي للصف بالكامل 
         const rowTotal = finalUnitPrice * Number(item.qty || 1);
@@ -743,6 +756,37 @@ const formatKitchenReceipt = (receiptData, productsList = []) => {
   // ✅ إجمالي الأصناف (orderCount) لو موجود في الـ receiptData
   const totalItems = receiptData.orderCount || 0;
 
+  // ✅ استخراج رقم الفاتورة (يظهر فاضي إذا كان غير موجود أو undefined أو أثناء تغيير الحالة)
+  const invoiceDisplay =
+    receiptData.invoiceNumber &&
+    String(receiptData.invoiceNumber).trim() !== "undefined" &&
+    String(receiptData.invoiceNumber).trim() !== "null"
+      ? receiptData.invoiceNumber
+      : "";
+
+  // ✅ استخراج الوقت والتاريخ (الافتراضي هو الوقت والتاريخ الحالي لو غير متوفرين)
+  const now = new Date();
+  const defaultDate = now.toLocaleDateString("en-GB");
+  const defaultTime = now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const finalDate =
+    receiptData.dateFormatted &&
+    String(receiptData.dateFormatted).trim() !== "undefined" &&
+    String(receiptData.dateFormatted).trim() !== "null"
+      ? receiptData.dateFormatted
+      : defaultDate;
+
+  const finalTime =
+    receiptData.timeFormatted &&
+    String(receiptData.timeFormatted).trim() !== "undefined" &&
+    String(receiptData.timeFormatted).trim() !== "null"
+      ? receiptData.timeFormatted
+      : defaultTime;
+
   return `
     <html>
       <head>
@@ -808,9 +852,8 @@ const formatKitchenReceipt = (receiptData, productsList = []) => {
             <div class="big-number">${displayBigNumber}</div>
           </div>
           <div class="box-right">
-            <div class="row-label">${isArabic ? "رقم الفاتورة" : "Order #"} ${receiptData.invoiceNumber
-    }</div>
-            <div class="row-label">${receiptData.timeFormatted}<br>${receiptData.dateFormatted}</div>
+            <div class="row-label">${isArabic ? "رقم الفاتورة" : "Order #"}<br><span style="font-size: 11px;">${invoiceDisplay}</span></div>
+            <div class="row-label">${finalTime}<br>${finalDate}</div>
             <!-- ✅ إضافة إجمالي الأصناف -->
             <div class="row-label">${isArabic ? "إجمالي الأصناف" : "Total Items"}: ${totalItems}</div>
           </div>
@@ -1058,7 +1101,7 @@ export const prepareReceiptData = (
   let finalTotal = requiredTotal;
   let deliveryFees = 0;
 
-  if (finalOrderType === "delivery") {
+if (finalOrderType === "delivery") {
     deliveryFees = response?.delivery_fees ? Number(response.delivery_fees) : 0;
     // (Optional logic for recalculating total if needed matches your original code)
     if (
@@ -1078,13 +1121,16 @@ export const prepareReceiptData = (
     cashierData.branch?.name ||
     "اسم المطعم";
 
+  // Use cart orderItems as primary source — they have full price/variation data.
+  // response.success from local backend has limited structure (no final_price, variation names only).
+  // Fallback chain: cart items → response.success → response.products
   const itemsSource =
-    response && response.success && Array.isArray(response.success)
-      ? response.success
-      : response && response.products && Array.isArray(response.products)
-        ? response.products
-        : Array.isArray(orderItems)
-          ? orderItems
+    Array.isArray(orderItems) && orderItems.length > 0
+      ? orderItems
+      : response && response.success && Array.isArray(response.success)
+        ? response.success
+        : response && response.products && Array.isArray(response.products)
+          ? response.products
           : [];
 
   const dateObj = response?.date ? new Date(response.date) : new Date();
@@ -1111,31 +1157,171 @@ export const prepareReceiptData = (
     orderType: finalOrderType,
     financials: response?.financials || [],
     orderNote: response?.order_note || "", // ✅ إضافة ملاحظة الأوردر على مستوى الـ receiptData
-    items: itemsSource.map((item) => {
+    items: itemsSource.map((item, index) => {
       // ✅ Robust extraction logic
       const productObj = item.product || {};
-      const qty = Number(item.count || item.qty || productObj.count || 1);
-      const name = item.name || productObj.name || "صنف غير معروف";
-      const nameAr = item.name_ar || item.nameAr || productObj.name_ar || name;
-      const nameEn = item.name_en || item.nameEn || productObj.name_en || name;
+      const orderItem = Array.isArray(orderItems)
+        ? (orderItems[index] || orderItems.find((oi) => String(oi.id || oi.product_id) === String(item.id || item.product_id)))
+        : null;
 
-      // Try different price fields
+      const qty = Number(item.count || item.qty || productObj.count || orderItem?.count || orderItem?.quantity || 1);
+      const name = item.name || productObj.name || orderItem?.name || "صنف غير معروف";
+      const nameAr = item.name_ar || item.nameAr || productObj.name_ar || orderItem?.name_ar || name;
+      const nameEn = item.name_en || item.nameEn || productObj.name_en || orderItem?.name_en || name;
+
+      // Try different price fields for base product price
       const price = Number(
-        item.price ||
         item.final_price ||
-        productObj.price ||
+        item.price_after_tax ||
+        item.price_after_discount ||
+        item.price ||
+        item.finalPrice ||
         productObj.final_price ||
-        productObj.total_price ||
+        productObj.price_after_tax ||
+        productObj.price ||
+        orderItem?.final_price ||
+        orderItem?.price_after_tax ||
+        orderItem?.price_after_discount ||
+        orderItem?.price ||
         0
       );
 
-      // Try different total fields or calculate it
       const total = Number(
         item.total ||
         productObj.total ||
-        productObj.total_price ||
-        (price * qty)
+        orderItem?.total ||
+        (price * qty) ||
+        0
       );
+
+      // Backend returns "note" (singular) — support both
+      const notes = item.note || item.notes || productObj.note || productObj.notes || orderItem?.notes || "";
+
+      // Normalize variations: backend sends { variation: "Name", options: ["str1","str2"] }
+      const rawVariations = item.variations || item.variation_selected || productObj.variations || orderItem?.variations || [];
+      let variations = Array.isArray(rawVariations)
+        ? rawVariations.map((g) => {
+            let opts = [];
+            if (g.selected_option_id) {
+              const sIds = Array.isArray(g.selected_option_id) ? g.selected_option_id : [g.selected_option_id];
+              opts = sIds.map((sid) => {
+                const opt = (g.options || []).find((o) => String(o.id) === String(sid));
+                return opt ? { name: opt.name, price: Number(opt.final_price || opt.price_after_tax || opt.price || 0) } : { name: String(sid), price: 0 };
+              });
+            } else if (Array.isArray(g.options)) {
+              opts = g.options.map((o) => {
+                if (typeof o === "object") {
+                  return {
+                    name: o.name || o.option || "",
+                    price: Number(o.final_price || o.price_after_tax || o.price || o.additional_price || 0),
+                    weight: Number(o.weight || o.value || 1)
+                  };
+                }
+                return { name: String(o), price: 0 };
+              });
+            }
+            return {
+              name: g.name || g.variation || "",
+              options: opts,
+            };
+          }).filter((v) => v.options && v.options.length > 0)
+        : [];
+
+      // If variations has no options with prices, check orderItem?.selectedVariation
+      const selVar = item.selectedVariation || orderItem?.selectedVariation;
+      if (selVar && typeof selVar === "object" && (!variations.length || !variations.some(v => v.options?.some(o => o.price > 0)))) {
+        const varCatalog = item.variations_catalog || item.all_variations || item.variations || orderItem?.variations || [];
+        if (Array.isArray(varCatalog) && varCatalog.length > 0) {
+          const resolvedVars = Object.entries(selVar).map(([varId, selVal]) => {
+            const grp = varCatalog.find((g) => String(g.id) === String(varId));
+            const grpName = grp?.name || grp?.variation || "";
+            let opts = [];
+            if (Array.isArray(selVal)) {
+              selVal.forEach((sv) => {
+                if (sv && typeof sv === "object" && sv.optionId) {
+                  const optObj = grp?.options?.find((o) => String(o.id) === String(sv.optionId));
+                  opts.push({
+                    name: optObj?.name || String(sv.optionId),
+                    price: Number(optObj?.final_price || optObj?.price_after_tax || optObj?.price || 0),
+                    weight: Number(sv.value || 1)
+                  });
+                } else {
+                  const optObj = grp?.options?.find((o) => String(o.id) === String(sv));
+                  opts.push({
+                    name: optObj?.name || String(sv),
+                    price: Number(optObj?.final_price || optObj?.price_after_tax || optObj?.price || 0),
+                    weight: 1
+                  });
+                }
+              });
+            } else if (selVal && typeof selVal === "object" && selVal.optionId !== undefined) {
+              const optObj = grp?.options?.find((o) => String(o.id) === String(selVal.optionId));
+              opts.push({
+                name: optObj?.name || String(selVal.optionId),
+                price: Number(optObj?.final_price || optObj?.price_after_tax || optObj?.price || 0),
+                weight: Number(selVal.value || 1)
+              });
+            } else if (selVal !== undefined && selVal !== null && selVal !== "") {
+              const optObj = grp?.options?.find((o) => String(o.id) === String(selVal));
+              opts.push({
+                name: optObj?.name || String(selVal),
+                price: Number(optObj?.final_price || optObj?.price_after_tax || optObj?.price || 0),
+                weight: 1
+              });
+            }
+            return {
+              name: grpName,
+              options: opts,
+            };
+          }).filter((v) => v.options && v.options.length > 0);
+
+          if (resolvedVars.length > 0) {
+            variations = resolvedVars;
+          }
+        }
+      }
+
+      // Normalize addons:
+      const rawAddons = item.addons || productObj.addons || orderItem?.addons || [];
+      const addons = Array.isArray(rawAddons)
+        ? rawAddons.filter((a) => a.selected || a.quantity > 0 || a.count > 0 || !a.hasOwnProperty("selected")).map((a) => ({
+            id: a.addon_id || a.id,
+            name: a.name || item.addons_list?.find((l) => String(l.id) === String(a.addon_id || a.id))?.name || (typeof a === "string" ? a : ""),
+            price: Number(a.final_price || a.price_after_tax || a.price || a.total || 0),
+            count: Number(a.count || a.quantity || a.qty || 1),
+          }))
+        : [];
+
+      // Normalize extras: support selectedExtras + allExtras, or direct item.extras
+      let extras = [];
+      if (Array.isArray(item.extras) && item.extras.length > 0) {
+        extras = item.extras.map((ex) => (typeof ex === "object" ? ex : { name: ex, price: 0 }));
+      } else if (Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0) {
+        extras = item.selectedExtras.map((exId) => {
+          const found = (item.allExtras || []).find((e) => String(e.id) === String(exId));
+          return { id: exId, name: found?.name || `Extra #${exId}`, price: Number(found?.final_price || found?.price_after_tax || found?.price || 0) };
+        });
+      } else if (Array.isArray(orderItem?.selectedExtras) && orderItem.selectedExtras.length > 0) {
+        extras = orderItem.selectedExtras.map((exId) => {
+          const found = (orderItem.allExtras || []).find((e) => String(e.id) === String(exId));
+          return { id: exId, name: found?.name || `Extra #${exId}`, price: Number(found?.final_price || found?.price_after_tax || found?.price || 0) };
+        });
+      } else if (Array.isArray(productObj.extras) && productObj.extras.length > 0) {
+        extras = productObj.extras.map((ex) => (typeof ex === "object" ? ex : { name: ex }));
+      }
+
+      // Normalize excludes: support selectedExcludes + excludes, or direct item.excludes
+      let excludes = [];
+      if (Array.isArray(item.selectedExcludes) && item.selectedExcludes.length > 0) {
+        excludes = item.selectedExcludes.map((exId) => {
+          const found = (item.excludes || []).find((e) => String(e.id) === String(exId));
+          return { id: exId, name: found?.name || (typeof exId === "object" ? exId.name : `Exclude #${exId}`) };
+        });
+      } else if (Array.isArray(item.excludes) && item.excludes.length > 0) {
+        excludes = item.excludes.map((exc) => (typeof exc === "object" ? exc : { name: exc }));
+      } else if (Array.isArray(productObj.excludes) && productObj.excludes.length > 0) {
+        excludes = productObj.excludes.map((exc) => (typeof exc === "object" ? exc : { name: exc }));
+      }
 
       return {
         qty,
@@ -1144,13 +1330,13 @@ export const prepareReceiptData = (
         nameEn,
         price,
         total,
-        notes: item.notes || productObj.notes || "",
+        notes,
         category_id: item.category_id || productObj.category_id,
         id: item.id || item.product_id || productObj.id,
-        addons: item.addons || productObj.addons || [],
-        extras: item.extras || productObj.extras || [],
-        excludes: item.excludes || productObj.excludes || [],
-        variations: item.variations || productObj.variations || [],
+        addons,
+        extras,
+        excludes,
+        variations,
       };
     }),
     customer: response?.customer || null,
@@ -1178,99 +1364,135 @@ export const prepareReceiptData = (
 };
 
 // ===================================================================
+// Helper: التحقق مما إذا كان اسمان يشيران إلى نفس الطابعة الفعلية
+// ===================================================================
+export const isSamePrinter = (p1, p2) => {
+  if (!p1 || !p2) return false;
+  const clean = (s) => String(s).toLowerCase().replace(/\s*\(copy\s*\d+\)/gi, "").replace(/[^a-z0-9]/g, "");
+  const c1 = clean(p1);
+  const c2 = clean(p2);
+  if (!c1 || !c2) return false;
+  return c1 === c2 || c1.startsWith(c2) || c2.startsWith(c1);
+};
+
+// ===================================================================
+// Helper: استخراج مفتاح التعديلات (Addons, Variations, Extras, Excludes)
+// ===================================================================
+const getModifierKey = (item) => {
+  const stringifySimple = (arr) => {
+    if (!Array.isArray(arr)) return "";
+    return arr
+      .map((o) => o?.id || o?.name || o?.option || o?.variation || String(o))
+      .filter(Boolean)
+      .sort()
+      .join(",");
+  };
+  const addons = stringifySimple(item.addons_selected || item.addons || []);
+  const extras = stringifySimple(item.extras || []);
+  const excludes = stringifySimple(item.excludes || []);
+
+  const variationOptions = (item.variation_selected || item.variations || [])
+    .flatMap((group) => {
+      if (!group || !Array.isArray(group.options)) return [];
+      return group.options.map((opt) => opt?.id || opt?.name || "");
+    })
+    .filter(Boolean)
+    .sort()
+    .join(",");
+
+  return `${variationOptions}|${addons}|${extras}|${excludes}`;
+};
+
+// ===================================================================
+// Helper: تجميع أصناف المطبخ حسب الطابعة الفعلية لمنع تكرار الطباعة
+// ===================================================================
+const consolidateKitchensByPrinter = (kitchens, receiptData, apiResponse) => {
+  if (!Array.isArray(kitchens) || kitchens.length === 0) return [];
+  const printerGroups = [];
+
+  for (const kitchen of kitchens) {
+    if (!kitchen.print_name || kitchen.print_status !== 1 || !kitchen.order?.length) continue;
+
+    const currentPrinterName = String(kitchen.print_name).trim();
+    if (!currentPrinterName || currentPrinterName.toLowerCase() === "null") continue;
+
+    let group = printerGroups.find(g => isSamePrinter(g.printerName, currentPrinterName));
+    if (!group) {
+      group = {
+        printerName: currentPrinterName,
+        itemsMap: new Map(),
+      };
+      printerGroups.push(group);
+    } else {
+      // تفضيل الاسم الأكثر تحديداً/تفصيلاً (مثل XP-80C بدلاً من XP)
+      if (currentPrinterName.length > group.printerName.length) {
+        group.printerName = currentPrinterName;
+      }
+    }
+
+    kitchen.order.forEach((item) => {
+      const modifierKey = getModifierKey(item);
+      const itemId = item.id || item.product_id || item._id || "unknown";
+      const itemNotes = item.notes || item.note || "";
+      const baseKey = `${itemId}|${itemNotes}`;
+      const fullKey = `${baseKey}|${modifierKey}`;
+
+      if (group.itemsMap.has(fullKey)) {
+        const existing = group.itemsMap.get(fullKey);
+        const isSameCart = item.cart_id && existing.cart_id && String(item.cart_id) === String(existing.cart_id);
+        const isSameProd = itemId !== "unknown" && existing.id === itemId;
+
+        // إذا كان الصنف قادم من مطبخ آخر لنفس الطلب (Fanout من الباك اند)، لا نضاعف الكمية
+        if (!isSameCart && !isSameProd) {
+          existing.qty += Number(item.count || item.qty || 1);
+        }
+      } else {
+        const original = (receiptData?.items || []).find(
+          (o) => (o.id && o.id == itemId) || (o.product_id && o.product_id == itemId)
+        );
+        group.itemsMap.set(fullKey, {
+          id: itemId,
+          cart_id: item.cart_id,
+          name: item.name || item.product_name || original?.name || "صنف غير معروف",
+          qty: Number(item.count || item.qty || 1),
+          notes: itemNotes || original?.notes || "",
+          addons: item.addons_selected || item.addons || original?.addons || [],
+          extras: item.extras || original?.extras || [],
+          excludes: item.excludes || original?.excludes || [],
+          variations: item.variation_selected || item.variations || original?.variations || [],
+        });
+      }
+    });
+  }
+
+  return printerGroups.map(group => {
+    const items = Array.from(group.itemsMap.values());
+    const orderCount = items.reduce((sum, it) => sum + Number(it.qty || 1), 0);
+    const kitchenReceiptData = {
+      ...receiptData,
+      items,
+      orderCount,
+      orderNote: apiResponse?.order_note || receiptData?.orderNote || "",
+    };
+    const html = getReceiptHTML(kitchenReceiptData, { design: "kitchen", type: "kitchen" });
+    return {
+      printerName: group.printerName,
+      html,
+    };
+  });
+};
+
+// ===================================================================
 // 9. دالة طباعة المطبخ فقط (Case 2: Prepare & Pending)
 // ===================================================================
 export const printKitchenOnly = async (receiptData, apiResponse, callback) => {
   try {
     const kitchens = apiResponse?.kitchen_items || [];
-    const allHtmlToPrint = [];
-
-    for (const kitchen of kitchens) {
-      if (
-        !kitchen.print_name ||
-        kitchen.print_status !== 1 ||
-        !kitchen.order?.length
-      )
-        continue;
-
-      // === التجميع حسب id + notes + selected variation options + addons + extras + excludes ===
-      const grouped = new Map();
-      const getModifierKey = (item) => {
-        const stringifySimple = (arr) => {
-          if (!Array.isArray(arr)) return "";
-          return arr
-            .map((o) => o.id || o.name || o.option || o.variation || String(o))
-            .filter(Boolean)
-            .sort()
-            .join(",");
-        };
-        const addons = stringifySimple(item.addons_selected || item.addons || []);
-        const extras = stringifySimple(item.extras || []);
-        const excludes = stringifySimple(item.excludes || []);
-
-        const variationOptions = (item.variation_selected || item.variations || [])
-          .flatMap((group) => {
-            if (!group || !Array.isArray(group.options)) return [];
-            return group.options.map((opt) => opt.id || opt.name || "");
-          })
-          .filter(Boolean)
-          .sort()
-          .join(",");
-
-        return `${variationOptions}|${addons}|${extras}|${excludes}`;
-      };
-
-      kitchen.order.forEach((item) => {
-        const modifierKey = getModifierKey(item);
-        const baseKey = `${item.id || item.product_id || "unknown"}|${item.notes || "no-notes"}`;
-        const fullKey = `${baseKey}|${modifierKey}`;
-        if (!grouped.has(fullKey)) {
-          grouped.set(fullKey, {
-            ...item,
-            qty: 0,
-          });
-        }
-        const entry = grouped.get(fullKey);
-        entry.qty += Number(item.count || item.qty || 1);
-      });
-
-      const kitchenItems = Array.from(grouped.values()).map((group) => {
-        const original = receiptData.items.find(
-          (o) => o.id == group.id || o.id == group.product_id
-        );
-        return {
-          qty: group.qty,
-          name: group.name || original?.name || "غير معروف",
-          notes: group.notes || original?.notes || "",
-          addons: group.addons_selected || original?.addons || [],
-          extras: group.extras || original?.extras || [],
-          excludes: group.excludes || original?.excludes || [],
-          variations: group.variation_selected || original?.variations || [],
-          id: group.id || group.product_id,
-        };
-      });
-
-      const kitchenReceiptData = {
-        ...receiptData,
-        items: kitchenItems,
-        orderCount: kitchen.order_count || kitchen.order.reduce((sum, item) => sum + Number(item.count || 1), 0),
-        orderNote: apiResponse?.order_note || receiptData.orderNote || "",
-      };
-
-      const kitchenHtml = getReceiptHTML(kitchenReceiptData, {
-        design: "kitchen",
-        type: "kitchen",
-      });
-
-      // Prevent pushing duplicate receipts for the same printer
-      const isDuplicate = allHtmlToPrint.some(
-        job => job.printerName === kitchen.print_name && job.html === kitchenHtml
-      );
-
-      if (!isDuplicate) {
-        allHtmlToPrint.push({ html: kitchenHtml, printerName: kitchen.print_name });
-      }
-    }
+    const printerJobs = consolidateKitchensByPrinter(kitchens, receiptData, apiResponse);
+    const allHtmlToPrint = printerJobs.map(job => ({
+      html: job.html,
+      printerName: job.printerName,
+    }));
 
     // --- التنفيذ النهائي ---
     if (allHtmlToPrint.length > 0) {
@@ -1446,26 +1668,9 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
     // --- 2. منطق طباعة المطبخ ---
     if (!shouldSkipKitchenPrint) {
       const kitchens = apiResponse?.kitchen_items || [];
-      for (const kitchen of kitchens) {
-        if (!kitchen.print_name || kitchen.print_status !== 1 || !kitchen.order?.length) continue;
-
-        const kitchenReceiptData = {
-          ...receiptData,
-          items: formatKitchenItems(kitchen.order, receiptData),
-          orderCount: kitchen.order_count || kitchen.order.reduce((sum, item) => sum + Number(item.count || 1), 0),
-          orderNote: apiResponse?.order_note || receiptData.orderNote || "",
-        };
-
-        const kitchenHtml = getReceiptHTML(kitchenReceiptData, { design: "kitchen", type: "kitchen" });
-
-        // Prevent pushing duplicate receipts for the same printer
-        const isDuplicate = electronJobs.some(
-          job => job.type === "kitchen" && job.printerName === kitchen.print_name && job.html === kitchenHtml
-        );
-
-        if (!isDuplicate) {
-          electronJobs.push({ html: kitchenHtml, printerName: kitchen.print_name, type: "kitchen" });
-        }
+      const kitchenJobs = consolidateKitchensByPrinter(kitchens, receiptData, apiResponse);
+      for (const job of kitchenJobs) {
+        electronJobs.push({ html: job.html, printerName: job.printerName, type: "kitchen" });
       }
     }
     if (isMobile) {

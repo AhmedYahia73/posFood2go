@@ -383,7 +383,13 @@ const resources = {
 
       CurrentHall: "Current Hall",
       Table: "Table",
+      TableTimer: "Table Time",
+      EndSession: "End",
+      TimeUsed: "Time Used",
+      SessionRunning: "Running",
+      MinutesShort: "min",
       ProductAddedToTable: "Product Added To Table",
+
       VoidItemManagerAuthentication: "Void Item Manager Authentication",
       ManagerID: "Manager ID",
       EnterManagerID: "Enter Manager ID",
@@ -801,8 +807,14 @@ const resources = {
       SelectItemsForPayment: "اختر العناصر التي تريد معالجتها للدفع ({{count}} محددة)",
       EnterManagerID: "أدخل رقم هوية المدير",
       CurrentHall: "القاعة الحالية",
-      Table: "الطاولة"
-      , ProductAddedToTable: "تم إضافة المنتج للطاولة",
+      Table: "الطاولة",
+      TableTimer: "وقت الطاولة",
+      EndSession: "إنهاء",
+      TimeUsed: "الوقت المستخدم",
+      SessionRunning: "جارية",
+      MinutesShort: "د",
+      ProductAddedToTable: "تم إضافة المنتج للطاولة",
+
       VoidItemManagerAuthentication: "إلغاء العنصر - مصادقة المدير",
       ExpenseAdded: "تمت إضافة المصروف",
       Failedtoaddexpense: "فشل في إضافة المصروف",

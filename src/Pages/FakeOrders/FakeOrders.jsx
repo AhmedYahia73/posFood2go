@@ -239,6 +239,15 @@ export default function FakeOrders() {
         }).filter(Boolean).join("");
       }
 
+      // ✅ Excludes
+      let excludesHTML = "";
+      if (item.excludes && item.excludes.length > 0) {
+        excludesHTML = item.excludes.map(exc => {
+          const name = typeof exc === "string" ? exc : (exc.name || "");
+          return name ? `<div class="addon-row" style="color:#d00;">- ${name}</div>` : "";
+        }).filter(Boolean).join("");
+      }
+
       // ✅ السعر النهائي للوحدة شاملاً الإضافات (زي الكارت)
       const finalUnitPrice = baseUnitPrice + addonsUnitPrice + extrasUnitPrice;
       
@@ -253,6 +262,7 @@ export default function FakeOrders() {
                         ${variationsHTML}
                         ${addonsHTML}
                         ${extrasHTML}
+                        ${excludesHTML}
                         ${item.notes || productObj.notes ? `<div class="notes-row">(${item.notes || productObj.notes})</div>` : ""}
                       </td>
                       <td class="item-total">${finalUnitPrice.toFixed(2)}</td>

@@ -57,16 +57,32 @@ export const processProductItem = (item) => {
     ? (item.quantity || item.count || 1)
     : (item.count || 1);
 
+  // ── Product by Time: send computed price with count=1 ──────────────────────
+  if (item.product_time && item.time_ended) {
+    const computedPrice = parseFloat(item.totalPrice || 0);
+    return {
+      product_id: item.id.toString(),
+      count: "1",
+      note,
+      price: computedPrice.toFixed(2),
+      variation: [],
+      addons: [],
+      extra_id: [],
+      exclude_id: [],
+    };
+  }
+
   return {
     product_id: item.id.toString(),
     count: finalCount.toString(), // سيتم إرسال "1.5" بدلاً من "1"
     note,
-    price: parseFloat(item.price_after_discount || 0).toFixed(2),
+    price: parseFloat(item.price_after_discount || item.price_after_tax || item.final_price || item.finalPrice || item.price || 0).toFixed(2),
     variation: variations,
     addons,
     extra_id,
     exclude_id,
   };
+
 };
 /**
  * بناء الـ financials payload - مظبوطة للفيزا والباقي
@@ -148,13 +164,13 @@ export const buildOrderPayload = ({
     cashier_id: cashierId.toString(),
     due: due.toString(),
     order_pending: "0",
-    // --- التعديل هنا ---
-    // إذا لم يتم تمرير قيمة لـ prepare_order، ستكون القيمة الافتراضية "1"
     prepare_order: prepare_order !== undefined ? prepare_order.toString() : "1",
-    // ------------------
     ...(repeated === 1 && { repeated: "1" }),
-    // تم حذف السطر القديم الخاص بـ prepare_order من هنا
   };
+
+  if (tableId) {
+    basePayload.table_id = tableId.toString();
+  }
 
   // 1. إرسال قيمة مصاريف الخدمة (Amount)
   if (service_fees !== undefined && service_fees !== null) {

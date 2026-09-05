@@ -324,25 +324,74 @@ export default function AllOrders() {
               </thead>
               <tbody>
                 ${data.order_details?.map(item => {
-      const productObj = item.product || {};
+      const productObj = (Array.isArray(item.product) ? item.product[0]?.product : item.product) || {};
+      const productName = item.name || productObj.name || (Array.isArray(item.product) ? item.product[0]?.name : "") || "—";
       const price = Number(item.price || item.final_price || productObj.price || productObj.final_price || productObj.total_price || 0);
-      const qty = Number(item.count || item.qty || productObj.count || 1);
-      const addonsTotal = item.addons?.reduce((sum, addon) => sum + (Number(addon.total || addon.price || 0) * qty), 0) || 0;
-      const rowTotal = Number(item.total || productObj.total || productObj.total_price || (price * qty)) + addonsTotal;
+      const qty = Number(item.count || item.qty || (Array.isArray(item.product) ? item.product[0]?.count : productObj.count) || 1);
 
-      let addonsHTML = "";
-      if (item.addons && item.addons.length > 0) {
-        addonsHTML = item.addons.map(add =>
-          `<div class="addon-row">+ ${add.name} (${Number(add.price || add.total || 0).toFixed(2)})</div>`
-        ).join("");
+      // 1. Variations
+      let variationsHTML = "";
+      if (item.variations && item.variations.length > 0) {
+        variationsHTML = item.variations.map(v => {
+          const varName = v.name || v.variation?.name || "";
+          const opts = Array.isArray(v.options)
+            ? v.options.map(o => (typeof o === "object" ? o.name : o)).filter(Boolean).join(", ")
+            : (typeof v.options === "string" ? v.options : "");
+          if (!opts) return "";
+          return `<div class="addon-row" style="color:#555;">• ${varName ? `${varName}: ` : ""}${opts}</div>`;
+        }).filter(Boolean).join("");
       }
+
+      // 2. Addons
+      let addonsHTML = "";
+      let addonsUnitPrice = 0;
+      if (item.addons && item.addons.length > 0) {
+        addonsHTML = item.addons.map(add => {
+          const name = add.name || add.addon?.name || (typeof add === "string" ? add : "");
+          const addonCount = Number(add.count || add.qty || 1);
+          const addonPrice = Number(add.price || add.addon?.price || add.total || 0);
+          const addonUnitAdd = addonPrice * addonCount;
+          addonsUnitPrice += addonUnitAdd;
+          const priceStr = addonUnitAdd > 0
+            ? (addonCount > 1 ? ` (${addonCount} × ${addonPrice.toFixed(2)})` : ` (+${addonUnitAdd.toFixed(2)})`)
+            : "";
+          return name ? `<div class="addon-row" style="color:#0066cc;">+ ${name}${priceStr}</div>` : "";
+        }).filter(Boolean).join("");
+      }
+
+      // 3. Extras
+      let extrasHTML = "";
+      let extrasUnitPrice = 0;
+      if (item.extras && item.extras.length > 0) {
+        extrasHTML = item.extras.map(ex => {
+          const name = typeof ex === "string" ? ex : (ex.name || "");
+          const extraPrice = Number(ex.price || ex.total || 0);
+          extrasUnitPrice += extraPrice;
+          const priceStr = extraPrice > 0 ? ` (+${extraPrice.toFixed(2)})` : "";
+          return name ? `<div class="addon-row" style="color:#0066cc;">+ ${name}${priceStr}</div>` : "";
+        }).filter(Boolean).join("");
+      }
+
+      // 4. Excludes
+      let excludesHTML = "";
+      if (item.excludes && item.excludes.length > 0) {
+        excludesHTML = item.excludes.map(exc => {
+          const name = typeof exc === "string" ? exc : (exc.name || "");
+          return name ? `<div class="addon-row" style="color:#d00;">- ${name}</div>` : "";
+        }).filter(Boolean).join("");
+      }
+
+      const rowTotal = Number(item.total || productObj.total || productObj.total_price || ((price + addonsUnitPrice + extrasUnitPrice) * qty));
 
       return `
                     <tr>
                       <td class="item-qty">${qty}</td>
                       <td class="item-name" style="text-align: ${isArabic ? "right" : "left"};">
-                        ${item.name || productObj.name || "—"}
+                        ${productName}
+                        ${variationsHTML}
                         ${addonsHTML}
+                        ${extrasHTML}
+                        ${excludesHTML}
                         ${item.notes || productObj.notes ? `<div class="notes-row">(${item.notes || productObj.notes})</div>` : ""}
                       </td>
                       <td class="item-total">${rowTotal.toFixed(2)}</td>
