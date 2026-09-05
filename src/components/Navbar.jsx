@@ -198,13 +198,9 @@ export default function Navbar() {
     }
 
     const branchId = localStorage.getItem("branch_id") || userData?.branch_id;
-    if (!branchId) {
-      console.warn("⚠️ branch_id missing — waiting for login");
-      return;
-    }
-
-    const channelName = `newOrder.${branchId}`;
-    const channel = echo.channel(channelName);
+    const branchChannelName = branchId ? `newOrder.${branchId}` : null;
+    const branchChannel = branchChannelName ? echo.channel(branchChannelName) : null;
+    const publicChannel = echo.channel("newOrder");
 
     const handleIncomingOrder = (data) => {
       console.log("📦 Real-time event received:", data);
@@ -218,18 +214,29 @@ export default function Navbar() {
         parsed = parsed.data;
       }
 
+      // Branch check: if event specifies a branch, ensure it matches cashier branch
+      const eventBranch = parsed?.branch_id ?? null;
+      const currentBranch = localStorage.getItem("branch_id") || userData?.branch_id;
+      if (eventBranch && currentBranch && String(eventBranch) !== String(currentBranch)) {
+        console.log(`ℹ️ Order branch (${eventBranch}) does not match cashier branch (${currentBranch}), skipped.`);
+        return;
+      }
+
       const orderId = parsed?.order_id ?? parsed?.order?.id ?? parsed?.id ?? null;
       if (orderId) {
+        console.log(`🔔 Processing order #${orderId} for branch ${eventBranch || currentBranch}`);
         processNewOrder(String(orderId));
         window.dispatchEvent(new CustomEvent("new-order-received", { detail: { orderId: String(orderId) } }));
       }
     };
 
-    // Listen for both event name formats (with dot prefix and without)
-    [".NewOrderEvent", "NewOrderEvent"].forEach((evt) =>
-      channel.listen(evt, handleIncomingOrder)
-    );
-    console.log(`🔌 Subscribed to Reverb: ${channelName}`);
+    const eventNames = [".NewOrderEvent", "NewOrderEvent", ".OrderEvent", "OrderEvent"];
+    eventNames.forEach((evt) => {
+      if (branchChannel) branchChannel.listen(evt, handleIncomingOrder);
+      publicChannel.listen(evt, handleIncomingOrder);
+    });
+
+    console.log(`🔌 Subscribed to Reverb: [${branchChannelName ? branchChannelName + ", " : ""}newOrder]`);
 
     const pusher = echo.connector?.pusher;
     if (pusher) {
@@ -258,18 +265,22 @@ export default function Navbar() {
         pusher.connection.unbind("disconnected", onDisconnected);
         pusher.connection.unbind("failed", onFailed);
         pusher.connection.unbind("unavailable", onDisconnected);
-        [".NewOrderEvent", "NewOrderEvent"].forEach((evt) =>
-          channel.stopListening(evt)
-        );
-        echo.leaveChannel(channelName);
+        eventNames.forEach((evt) => {
+          if (branchChannel) branchChannel.stopListening(evt);
+          publicChannel.stopListening(evt);
+        });
+        if (branchChannelName) echo.leaveChannel(branchChannelName);
+        echo.leaveChannel("newOrder");
       };
     }
 
     return () => {
-      [".NewOrderEvent", "NewOrderEvent"].forEach((evt) =>
-        channel.stopListening(evt)
-      );
-      echo.leaveChannel(channelName);
+      eventNames.forEach((evt) => {
+        if (branchChannel) branchChannel.stopListening(evt);
+        publicChannel.stopListening(evt);
+      });
+      if (branchChannelName) echo.leaveChannel(branchChannelName);
+      echo.leaveChannel("newOrder");
     };
   }, [userData?.branch_id, processNewOrder]);
 
