@@ -60,7 +60,8 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+      const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "";
+      const API_BASE_URL = rawBaseUrl.trim().replace(/\/?$/, "/");
       const url = `${API_BASE_URL}api/cashier/auth/login`;
 
       // 🧠 تجهيز بيانات الطلب
