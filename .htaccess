@@ -1,0 +1,15 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /point-of-sale/
+
+  # 1. توجيه كل الطلبات لمجلد dist الداخلي بتاع المشروع الفرعي
+  RewriteCond %{REQUEST_URI} !^/point-of-sale/dist/
+  RewriteRule ^(.*)$ dist/$1 [L]
+
+  # 2. إعدادات React Router (SPA) للمشروع الفرعي
+  # لو الطلب دخل جوه dist وملقاش ملف حقيقي، وجهه لـ index.html
+  RewriteCond %{REQUEST_URI} ^/point-of-sale/dist/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ dist/index.html [L]
+</IfModule>
