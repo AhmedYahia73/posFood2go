@@ -350,12 +350,12 @@ const Dine = () => {
 
       try {
         const transferData = JSON.parse(transferDataString);
-        const products = transferData.orderItems.map(processProductItem);
+        const products = (transferData.orderItems || []).filter(Boolean).map(processProductItem).filter(Boolean);
 
         const formData = new FormData();
         formData.append("table_id", table.id);
-        formData.append("amount", transferData.amount);
-        formData.append("total_tax", transferData.totalTax);
+        formData.append("amount", transferData.amount || "0");
+        formData.append("total_tax", transferData.totalTax || "0");
         formData.append("total_discount", transferData.totalDiscount || "0");
         formData.append("notes", transferData.notes || "");
 
@@ -369,7 +369,7 @@ const Dine = () => {
           if (product.variation && product.variation.length > 0) {
             product.variation.forEach((v, vIndex) => {
               formData.append(`products[${index}][variation][${vIndex}][variation_id]`, v.variation_id);
-              v.option_id.forEach((optId, optIndex) => {
+              (v.option_id || []).forEach((optId, optIndex) => {
                 formData.append(`products[${index}][variation][${vIndex}][option_id][${optIndex}]`, optId);
               });
             });
@@ -423,7 +423,7 @@ const Dine = () => {
     if (transferPending) {
       const cartIds = JSON.parse(localStorage.getItem("transfer_cart_ids") || "[]");
 
-      if (cartIds.length > 0 && sourceTableId === table.id.toString()) {
+      if (cartIds.length > 0 && sourceTableId === table?.id?.toString()) {
         toast.error(t("CannotTransferToSameTable"));
         return;
       }
