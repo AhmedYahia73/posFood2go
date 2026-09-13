@@ -1,6 +1,9 @@
 import { getCurrencySymbol } from '../../utils/currency';
 import { toast } from "react-toastify";
 import qz from "qz-tray";
+import { downloadReceiptPdf } from "./receiptPdf";
+
+export { downloadReceiptPdf };
 // ===================================================================
 // 1. HashMap للطابعات
 // ===================================================================
@@ -96,20 +99,28 @@ const formatCashierReceipt = (receiptData) => {
 
   return `
   <!DOCTYPE html>
-  <html>
+  <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
     <head>
       <meta charset="UTF-8">
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
       <style>
         /* إعدادات الصفحة الأساسية */
         @page { margin: 0; size: auto; }
+        * {
+          box-sizing: border-box;
+          letter-spacing: normal !important;
+        }
         body {
           margin: 0 !important;
           padding: 0 !important;
           width: 100% !important;
           background-color: #fff;
-          font-family: 'Tahoma', 'Arial', sans-serif; /* Tahoma أفضل للعربي */
+          font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif !important;
           color: #000;
-          direction: ${isArabic ? "rtl" : "ltr"};
+          direction: ${isArabic ? "rtl" : "ltr"} !important;
+          text-align: ${isArabic ? "right" : "left"};
           font-size: 12px;
         }
         .container {
@@ -125,8 +136,7 @@ const formatCashierReceipt = (receiptData) => {
             font-size: 24px; 
             font-weight: 900; 
             margin: 0; 
-            text-transform: uppercase; 
-            letter-spacing: 1px;
+            letter-spacing: normal !important;
         }
         .header p { margin: 2px 0; font-size: 12px; color: #333; }
         .header .phone { font-weight: bold; font-size: 13px; margin-top: 2px;}
@@ -1682,40 +1692,87 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
       return; // توقف هنا عشان ما يكملش لكود الديسكتوب
     }
     // --- 3. التنفيذ النهائي ---
+    let printFailed = false;
+
     if (window.electronAPI) {
+      let anyJobFailed = false;
       for (const job of electronJobs) {
-        // لو الـ job ملوش printerName (زي الكاشير)، هيروح كـ undefined
-        // والـ main.js هيعرف إنه يطبع Default
-        window.electronAPI.sendPrintOrder(job.html, job.printerName);
+        try {
+          const res = await window.electronAPI.sendPrintOrder(job.html, job.printerName);
+          if (res && res.success === false) {
+            anyJobFailed = true;
+            console.warn(`Print failed for ${job.printerName}:`, res.failureReason);
+          }
+        } catch (e) {
+          anyJobFailed = true;
+          console.error("sendPrintOrder error:", e);
+        }
       }
-      // ✅ فتح الدرج بعد طباعة الكاشير
-      if (window.electronAPI?.openCashDrawer) {
-        window.electronAPI.openCashDrawer();
+
+      if (anyJobFailed) {
+        printFailed = true;
+        toast.warn(
+          receiptData.cashier_lang === "en"
+            ? "⚠️ Printing failed, downloading invoice PDF..."
+            : "⚠️ تعذرت الطباعة على الطابعة، جاري تحميل الفاتورة بصيغة PDF..."
+        );
+        await downloadReceiptPdf(receiptData, cashierHtml);
+      } else {
+        // ✅ فتح الدرج بعد طباعة الكاشير
+        if (window.electronAPI?.openCashDrawer) {
+          window.electronAPI.openCashDrawer();
+        }
+        toast.success("✅ تم إرسال الأوامر للطابعة وفتح الدرج");
       }
-      toast.success("✅ تم إرسال الأوامر للطابعة وفتح الدرج");
 
     } else if (typeof qz !== "undefined" && qz.websocket.isActive()) {
-      const cashierPrinterName = await qz.printers.getDefault();
-      const cashierConfig = qz.configs.create(cashierPrinterName);
+      try {
+        const cashierPrinterName = await qz.printers.getDefault();
+        const cashierConfig = qz.configs.create(cashierPrinterName);
 
-      for (const job of electronJobs) {
-        const config = job.type === "kitchen" ? qz.configs.create(job.printerName) : cashierConfig;
-        printJobs.push(qz.print(config, [{ type: "html", format: "plain", data: job.html }]));
+        for (const job of electronJobs) {
+          const config = job.type === "kitchen" ? qz.configs.create(job.printerName) : cashierConfig;
+          printJobs.push(qz.print(config, [{ type: "html", format: "plain", data: job.html }]));
+        }
+        await Promise.all(printJobs);
+
+        // ✅ فتح الدرج بعد طباعة الكاشير مباشرةً
+        await openCashDrawer();
+
+        toast.success("✅ تم طباعة الإيصالات وفتح الدرج");
+      } catch (qzErr) {
+        console.error("❌ QZ Tray print error:", qzErr);
+        printFailed = true;
+        toast.warn(
+          receiptData.cashier_lang === "en"
+            ? "⚠️ Printing failed via QZ Tray, downloading invoice PDF..."
+            : "⚠️ تعذرت الطباعة عبر QZ، جاري تحميل الفاتورة بصيغة PDF..."
+        );
+        await downloadReceiptPdf(receiptData, cashierHtml);
       }
-      await Promise.all(printJobs);
-
-      // ✅ فتح الدرج بعد طباعة الكاشير مباشرةً
-      await openCashDrawer();
-
-      toast.success("✅ تم طباعة الإيصالات وفتح الدرج");
     } else {
-      toast.warn("⚠️ لا يوجد وسيلة طباعة متاحة (Electron أو QZ Tray)");
+      printFailed = true;
+      toast.warn(
+        receiptData.cashier_lang === "en"
+          ? "⚠️ No printer available, downloading invoice PDF..."
+          : "⚠️ لا توجد وسيلة طباعة متصلة، جاري تحميل الفاتورة بصيغة PDF..."
+      );
+      await downloadReceiptPdf(receiptData, cashierHtml);
     }
 
     if (callback) callback();
   } catch (err) {
     console.error("Print Error:", err);
-    toast.error("❌ فشل الطباعة");
+    toast.error(
+      receiptData?.cashier_lang === "en"
+        ? "❌ Printing failed, downloading invoice PDF..."
+        : "❌ فشل الطباعة، جاري تحميل الفاتورة بصيغة PDF..."
+    );
+    try {
+      await downloadReceiptPdf(receiptData, cashierHtml);
+    } catch (pdfErr) {
+      console.error("PDF fallback error:", pdfErr);
+    }
     if (callback) callback();
   }
 };
