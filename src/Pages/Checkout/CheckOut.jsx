@@ -56,6 +56,7 @@ const CheckOut = ({
   selectedDiscountId,
   freeDiscount,
   freeDiscountPassword,
+  isCheckoutVisible,
 }) => {
   const [showRepeatModal, setShowRepeatModal] = useState(false);
   const [pendingRepeatedPayload, setPendingRepeatedPayload] = useState(null);
@@ -63,6 +64,18 @@ const CheckOut = ({
   const tableId = localStorage.getItem("table_id") || null;
   const [appliedDiscount, setAppliedDiscount] = useState(0);
   const isSubmitting = useRef(false);
+  const isOrderSuccessful = useRef(false);
+  const clientOrderTokenRef = useRef(
+    `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+  );
+
+  useEffect(() => {
+    if (isCheckoutVisible) {
+      isOrderSuccessful.current = false;
+      isSubmitting.current = false;
+      clientOrderTokenRef.current = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    }
+  }, [isCheckoutVisible]);
   const baseUrl = (window.API_BASE_URL || import.meta.env.VITE_API_BASE_URL);
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
@@ -531,9 +544,14 @@ const CheckOut = ({
     const isFullDueModule = dueModuleValue > 0 && Math.abs(dueModuleValue - discountedAmount) < 0.01;
     const financialsPayload = isFullDueModule ? [] : buildFinancialsPayload(paymentSplits, financialAccounts);
 
+    const clientOrderToken = clientOrderTokenRef.current;
+
     let payload;
     if (hasDealItems) {
-      payload = buildDealPayload(safeOrderItems, financialsPayload);
+      payload = {
+        ...buildDealPayload(safeOrderItems, financialsPayload),
+        client_order_token: clientOrderToken,
+      };
     } else {
       const finalDiscountIdToSend = selectedDiscountAmount > 0 ? finalSelectedDiscountId : selectedDiscountId;
       payload = buildOrderPayload({
@@ -558,9 +576,11 @@ const CheckOut = ({
         service_fees,
         password: finalPassword || undefined,
         repeated,
-
+        client_order_token: clientOrderToken,
       });
     }
+
+    if (isOrderSuccessful.current) return;
 
     try {
       const response = await postData(endpoint, payload);
@@ -568,6 +588,10 @@ const CheckOut = ({
       console.log("📥 Backend Response (Success Path):", response);
 
       if (response?.success) {
+        isOrderSuccessful.current = true;
+        isSubmitting.current = true;
+        setLoading(true);
+
         // 🟢 نجاح العملية (زي ما هو)
         toast.success(due === 1 ? t("DueOrderCreated") : t("OrderPlaced"));
 
@@ -650,10 +674,22 @@ const CheckOut = ({
         }
       }
 
-      // أي خطأ (مش repeated أو no response) → toast عادي
-      toast.error(t("SubmissionFailed"));
+      // أي خطأ (مش repeated أو no response) → toast برسالة الباك إند
+      let displayError = t("SubmissionFailed");
+      if (backendResponse) {
+        if (typeof backendResponse.errors === "string") {
+          displayError = backendResponse.errors;
+        } else if (typeof backendResponse.errors === "object" && backendResponse.errors !== null) {
+          displayError = Object.values(backendResponse.errors).flat().join(" - ");
+        } else if (backendResponse.message) {
+          displayError = backendResponse.message;
+        } else if (backendResponse.faild) {
+          displayError = backendResponse.faild;
+        }
+      }
+      toast.error(displayError);
     } finally {
-      if (!showRepeatModal) {
+      if (!showRepeatModal && !isOrderSuccessful.current) {
         setLoading(false);
         isSubmitting.current = false;
       }
@@ -675,8 +711,8 @@ const CheckOut = ({
   };
 
   const handleSubmitOrder = async () => {
-    // 🟢 أول سطر: لو القفل مقفول اخرج فوراً
-    if (isSubmitting.current) return;
+    // 🟢 أول سطر: لو القفل مقفول أو تم الطلب بنجاح اخرج فوراً
+    if (isSubmitting.current || isOrderSuccessful.current) return;
 
     if (!isTotalMet || (requiredTotal > 0 && totalScheduled === 0)) {
       return toast.error(t("TotalMustEqual", { amount: requiredTotal.toFixed(2) }));
@@ -982,12 +1018,12 @@ const CheckOut = ({
 
       {/* الزر النهائي - Pay Button */}
       <Button
-        className={`w-full py-8 rounded-xl text-xl font-black uppercase tracking-widest transition-all ${loading ? 'bg-gray-300' : 'bg-[#800000] hover:bg-[#a00000] text-white shadow-xl active:scale-95'
+        className={`w-full py-8 rounded-xl text-xl font-black uppercase tracking-widest transition-all ${loading || isOrderSuccessful.current ? 'bg-gray-300 pointer-events-none' : 'bg-[#800000] hover:bg-[#a00000] text-white shadow-xl active:scale-95'
           }`}
-        disabled={loading}
+        disabled={loading || isOrderSuccessful.current}
         onClick={() => { handleSubmitOrder(); }}
       >
-        {loading ? (
+        {loading || isOrderSuccessful.current ? (
           <Loading />
         ) : (
           t("PayNow")
@@ -1024,9 +1060,11 @@ const CheckOut = ({
                   if (!data) return;
                   setLoading(true);
                   isSubmitting.current = true;
+                  const freshToken = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
                   try {
                     const response = await postData(data.endpoint, {
                       ...data.payload,
+                      client_order_token: freshToken,
                       repeated: "1",
                     });
                     if (response?.success) {

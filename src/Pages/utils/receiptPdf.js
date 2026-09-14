@@ -11,7 +11,7 @@ import { toast } from "react-toastify";
  * @returns {Promise<boolean>}
  */
 export const downloadReceiptPdf = async (receiptData, rawHtml) => {
-  let printContainer = null;
+  let iframe = null;
   try {
     const cashierLang =
       receiptData?.cashier_lang ||
@@ -26,44 +26,26 @@ export const downloadReceiptPdf = async (receiptData, rawHtml) => {
       return false;
     }
 
-    // Ensure Cairo font link exists in document head for online rendering
-    if (typeof document !== "undefined" && !document.getElementById("food2go-cairo-font")) {
-      const link = document.createElement("link");
-      link.id = "food2go-cairo-font";
-      link.rel = "stylesheet";
-      link.href = "https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap";
-      document.head.appendChild(link);
-    }
-
-    // Create off-screen container styled for 80mm thermal paper width (~340px)
-    printContainer = document.createElement("div");
-    printContainer.id = "receipt-pdf-render-container";
-    printContainer.style.position = "fixed";
-    printContainer.style.top = "0";
-    printContainer.style.left = "0";
-    printContainer.style.width = "340px";
-    printContainer.style.maxWidth = "340px";
-    printContainer.style.backgroundColor = "#ffffff";
-    printContainer.style.color = "#000000";
-    printContainer.style.zIndex = "-99999";
-    printContainer.style.pointerEvents = "none";
-    printContainer.style.fontFamily = "'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif";
-    printContainer.dir = isArabic ? "rtl" : "ltr";
-    printContainer.style.direction = isArabic ? "rtl" : "ltr";
-    printContainer.style.textAlign = isArabic ? "right" : "left";
-    printContainer.style.padding = "6px";
-    printContainer.style.boxSizing = "border-box";
-
     // Override styles to enforce Arabic cursive ligatures (letter-spacing: normal is critical)
     const overrideStyles = `
       <style>
+        * {
+          box-sizing: border-box !important;
+          -webkit-font-smoothing: antialiased;
+        }
+        body, html {
+          margin: 0 !important;
+          padding: 0 !important;
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif !important;
+        }
         #receipt-pdf-render-container,
         #receipt-pdf-render-container * {
           font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif !important;
           letter-spacing: normal !important;
           word-spacing: normal !important;
           box-sizing: border-box !important;
-          -webkit-font-smoothing: antialiased;
         }
         #receipt-pdf-render-container .header h1,
         #receipt-pdf-render-container h1,
@@ -93,26 +75,53 @@ export const downloadReceiptPdf = async (receiptData, rawHtml) => {
       contentToRender = overrideStyles + rawHtml;
     }
 
-    printContainer.innerHTML = contentToRender;
+    // Create an isolated hidden iframe completely decoupled from Tailwind v4 / oklch styles
+    iframe = document.createElement("iframe");
+    iframe.id = "receipt-pdf-render-frame";
+    iframe.style.position = "fixed";
+    iframe.style.top = "0";
+    iframe.style.left = "0";
+    iframe.style.width = "340px";
+    iframe.style.height = "1200px";
+    iframe.style.border = "none";
+    iframe.style.zIndex = "-99999";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
 
-    // Ensure images have crossOrigin set to prevent canvas tainting
-    const images = printContainer.getElementsByTagName("img");
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    iframeDoc.open();
+    iframeDoc.write(`<!DOCTYPE html>
+<html dir="${isArabic ? "rtl" : "ltr"}">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap">
+  ${overrideStyles}
+</head>
+<body dir="${isArabic ? "rtl" : "ltr"}" style="margin: 0; padding: 0; background: #ffffff; color: #000000;">
+  <div id="receipt-pdf-render-container" dir="${isArabic ? "rtl" : "ltr"}" style="width: 340px; max-width: 340px; background-color: #ffffff; color: #000000; font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif; direction: ${isArabic ? "rtl" : "ltr"}; text-align: ${isArabic ? "right" : "left"}; padding: 6px; box-sizing: border-box;">
+    ${contentToRender}
+  </div>
+</body>
+</html>`);
+    iframeDoc.close();
+
+    const targetElement = iframeDoc.getElementById("receipt-pdf-render-container") || iframeDoc.body;
+
+    // Wait for fonts inside iframe
+    if (iframeDoc.fonts && iframeDoc.fonts.ready) {
+      try {
+        await iframeDoc.fonts.ready;
+      } catch (e) {}
+    }
+
+    // Wait for images inside iframe to load
+    const images = targetElement.getElementsByTagName("img");
     for (const img of images) {
       img.crossOrigin = "anonymous";
     }
 
-    document.body.appendChild(printContainer);
-
-    // Wait for fonts to be ready
-    if (document.fonts && document.fonts.ready) {
-      try {
-        await document.fonts.ready;
-      } catch (e) {
-        // ignore font readiness error
-      }
-    }
-
-    // Wait for images to load or timeout safely
     if (images.length > 0) {
       await Promise.all(
         Array.from(images).map((img) => {
@@ -120,7 +129,6 @@ export const downloadReceiptPdf = async (receiptData, rawHtml) => {
           return new Promise((resolve) => {
             img.onload = resolve;
             img.onerror = () => {
-              // If an image fails to load (e.g. CORS block), hide it so canvas doesn't break
               img.style.display = "none";
               resolve();
             };
@@ -134,13 +142,27 @@ export const downloadReceiptPdf = async (receiptData, rawHtml) => {
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     // Render DOM to high-DPI canvas (scale 3 = crisp 300+ DPI text)
-    const canvas = await html2canvas(printContainer, {
+    const canvas = await html2canvas(targetElement, {
       scale: 3,
       useCORS: true,
       allowTaint: false,
       logging: false,
       backgroundColor: "#ffffff",
       windowWidth: 340,
+      onclone: (clonedDoc) => {
+        // Strip any unsupported colors in cloned document as a safeguard
+        const allElements = clonedDoc.getElementsByTagName("*");
+        for (let i = 0; i < allElements.length; i++) {
+          const el = allElements[i];
+          if (el.style) {
+            ["color", "backgroundColor", "borderColor"].forEach((prop) => {
+              if (el.style[prop] && el.style[prop].includes("oklch")) {
+                el.style[prop] = prop === "backgroundColor" ? "#ffffff" : "#000000";
+              }
+            });
+          }
+        }
+      },
     });
 
     const receiptWidthMm = 80;
@@ -175,8 +197,8 @@ export const downloadReceiptPdf = async (receiptData, rawHtml) => {
     );
     return false;
   } finally {
-    if (printContainer && printContainer.parentNode) {
-      printContainer.parentNode.removeChild(printContainer);
+    if (iframe && iframe.parentNode) {
+      iframe.parentNode.removeChild(iframe);
     }
   }
 };

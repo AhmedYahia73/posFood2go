@@ -259,6 +259,7 @@ export const buildOrderPayload = ({
   password,
   repeated = 0,
   prepare_order,
+  client_order_token,
 }) => {
   const basePayload = {
     amount: parseFloat(amountToPay || 0).toFixed(2),
@@ -272,6 +273,7 @@ export const buildOrderPayload = ({
     order_pending: "0",
     prepare_order: prepare_order !== undefined && prepare_order !== null ? prepare_order.toString() : "1",
     ...(repeated === 1 && { repeated: "1" }),
+    ...(client_order_token && { client_order_token }),
   };
 
   if (tableId !== undefined && tableId !== null && tableId !== "") {
