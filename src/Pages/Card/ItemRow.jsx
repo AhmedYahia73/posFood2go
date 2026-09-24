@@ -158,17 +158,43 @@ const ItemRow = ({
         : Number(item.discount_val || 0))
     : unitBasePrice;
 
-  const addonsTotal = calculateItemUnitPrice(item);
+  const isTaxInc =
+    item?.taxes === "included" ||
+    item?.taxes?.setting === "included" ||
+    item?.tax_obj?.setting === "included";
+
+  // حساب الإضافات والـ addons الخارجية فقط إن وجدت
+  let extraAdditions = 0;
+  const storedExtras = item.selectedExtras || [];
+  if (storedExtras.length > 0) {
+    const allExtrasCatalog = item.allExtras || [];
+    storedExtras.forEach((id) => {
+      const extra = allExtrasCatalog.find((e) => String(e.id) === String(id));
+      if (extra) {
+        const p = isTaxInc
+          ? parseFloat(extra.final_price || extra.price_after_tax || extra.price || 0)
+          : parseFloat(extra.price || extra.price_after_discount || extra.final_price || 0);
+        extraAdditions += p;
+      }
+    });
+  }
+
+  const storedAddons = item.addons || [];
+  storedAddons.forEach((addon) => {
+    if (addon.addon_id !== undefined) {
+      const qty = parseFloat(addon.quantity || addon.count || 1);
+      const addonP = isTaxInc
+        ? parseFloat(addon.final_price || addon.price_after_tax || addon.price || 0)
+        : parseFloat(addon.price || addon.price_after_discount || addon.final_price || 0);
+      extraAdditions += addonP * qty;
+    }
+  });
+
   const quantity = isWeightProduct
     ? isScaleWeightItem
       ? Number(item._weight_kg || 0)
       : Number(item.quantity || 0)
     : Number(item.count || 1);
-
-  const isTaxInc =
-    item?.taxes === "included" ||
-    item?.taxes?.setting === "included" ||
-    item?.tax_obj?.setting === "included";
 
   const displayedUnitPrice = isTaxInc
     ? Number(item.final_price || item.price_after_tax || item.price || 0)
@@ -181,7 +207,7 @@ const ItemRow = ({
       : "—"
     : Number(item.totalPrice || item.modalCalculatedPrice || item.price || 0).toFixed(2);
 
-  let displayedOriginalUnitPrice = originalUnitBasePrice + addonsTotal;
+  let displayedOriginalUnitPrice = originalUnitBasePrice + extraAdditions;
 
   return (
     <tr
