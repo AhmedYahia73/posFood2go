@@ -675,9 +675,10 @@ export default function OrderSummary({
   const hasDiscount = totalAppliedDiscountNum > 0.01; // > 0.01 عشان نتجنب floating point errors زي 0.0000001
 
   const finalAmountAfterDiscount = (parseFloat(amountToPay) - totalAppliedDiscountNum).toFixed(2);
+  const displayedSubTotal = subTotal + (apiTotalDiscount || 0);
 
   const printCalculations = {
-    subTotal: Number(subTotal.toFixed(2)),
+    subTotal: Number(displayedSubTotal.toFixed(2)),
     totalTax: totalTax,
     totalOtherCharge: Number(realServiceFee.toFixed(2)),
     taxDetails: taxDetails,
@@ -801,7 +802,7 @@ export default function OrderSummary({
 
       {/* Summary Display */}
       <div className="bg-gray-50 p-4 md:p-6 rounded-lg shadow-inner mb-4 md:mb-6">
-        <SummaryRow label={t("SubTotal")} value={subTotal} />
+        <SummaryRow label={t("SubTotal")} value={displayedSubTotal} />
 
         {taxDetails && taxDetails.length > 0 ? (
           taxDetails.map((tax, index) => (
