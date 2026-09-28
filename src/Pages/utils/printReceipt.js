@@ -499,7 +499,7 @@ ${moduleLine}
     ${modifiersHTML ? `<div style="margin-top:4px;">${modifiersHTML}</div>` : ""}
     ${notesHTML}
   </td>
-  <td class="item-total">${finalUnitPrice.toFixed(2)}</td>
+  <td class="item-total">${baseUnitPrice.toFixed(2)}</td>
   <td class="item-total">${rowTotal.toFixed(2)}</td>
 </tr>
 `;
@@ -1184,6 +1184,7 @@ if (finalOrderType === "delivery") {
         item.final_price ||
         item.price_after_tax ||
         item.price_after_discount ||
+        item.originalPrice ||
         item.price ||
         item.finalPrice ||
         productObj.final_price ||
@@ -1192,6 +1193,7 @@ if (finalOrderType === "delivery") {
         orderItem?.final_price ||
         orderItem?.price_after_tax ||
         orderItem?.price_after_discount ||
+        orderItem?.originalPrice ||
         orderItem?.price ||
         0
       );

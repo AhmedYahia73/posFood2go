@@ -847,7 +847,7 @@ const ProductModal = ({
                   // استخدام final_price من الباك إند
                   price: unitPrice,
                   modalCalculatedPrice: unitPrice,
-                  originalPrice: selectedProduct.final_price,
+                  originalPrice: basePrice,
                   totalPrice: totalPrice,
 
                   // إضافة discount_val و tax_only بشكل صريح

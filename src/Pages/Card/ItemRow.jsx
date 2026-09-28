@@ -261,6 +261,8 @@ const ItemRow = ({
               {item.variations?.map((v, i) => {
                 let selectedName = "";
                 let extraInfo = "";
+                let selectedOption = null;
+                let optionWeight = 1;
                 if (v.type === "multiple" && item.selectedVariation?.[v.id]) {
                   const arr = Array.isArray(item.selectedVariation[v.id])
                     ? item.selectedVariation[v.id]
@@ -269,27 +271,51 @@ const ItemRow = ({
                   if (sel !== undefined && sel !== null) {
                     const selOptionId =
                       typeof sel === "object" ? sel.optionId || sel.id : sel;
-                    const opt = v.options?.find(
+                    selectedOption = v.options?.find(
                       (o) => String(o.id) === String(selOptionId)
                     );
-                    selectedName = opt?.name || "";
+                    selectedName = selectedOption?.name || "";
                     extraInfo =
                       typeof sel === "object" && sel.value
                         ? `(${sel.value} KG)`
                         : "";
+                    if (typeof sel === "object" && Number(sel.value) > 0) {
+                      optionWeight = Number(sel.value);
+                    }
                   }
                 } else {
-                  const selected = v.options?.find(
-                    (opt) => opt.id === v.selected_option_id
+                  const selectedValue =
+                    item.selectedVariation?.[v.id] ?? v.selected_option_id;
+                  const selectedId =
+                    selectedValue && typeof selectedValue === "object"
+                      ? selectedValue.optionId || selectedValue.id
+                      : selectedValue;
+                  selectedOption = v.options?.find(
+                    (opt) => String(opt.id) === String(selectedId)
                   );
-                  selectedName = selected?.name || "";
+                  selectedName = selectedOption?.name || "";
+                  if (selectedValue && typeof selectedValue === "object" && Number(selectedValue.value) > 0) {
+                    optionWeight = Number(selectedValue.value);
+                    extraInfo = `(${selectedValue.value} KG)`;
+                  }
                 }
+                const variationPrice = Number(
+                  selectedOption?.final_price ||
+                  selectedOption?.price ||
+                  selectedOption?.additional_price ||
+                  0
+                ) * optionWeight;
                 return selectedName ? (
                   <span
                     key={`var-${i}`}
                     className="text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 whitespace-nowrap"
                   >
                     {selectedName}{" "}
+                    {variationPrice > 0 && (
+                      <span className="font-bold text-gray-700">
+                        +{variationPrice.toFixed(2)}
+                      </span>
+                    )}{" "}
                     {extraInfo && (
                       <span className="font-bold opacity-75">{extraInfo}</span>
                     )}
