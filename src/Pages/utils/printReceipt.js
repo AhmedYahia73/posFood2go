@@ -27,6 +27,20 @@ const PRINTER_CONFIG = {
 };
 
 // ===================================================================
+// Safe JSON Parsing Helper
+// ===================================================================
+const safeJSONParse = (key, fallback = {}) => {
+  try {
+    const item = localStorage.getItem(key);
+    if (!item || item === "undefined" || item === "null") return fallback;
+    return JSON.parse(item) || fallback;
+  } catch (e) {
+    console.warn(`Error parsing ${key} from localStorage:`, e);
+    return fallback;
+  }
+};
+
+// ===================================================================
 // 4. تصميم إيصال الكاشير (نسخة بريميوم / مودرن)
 // ===================================================================
 
@@ -51,8 +65,7 @@ const formatCashierReceipt = (receiptData) => {
     orderTypeLabel = isArabic ? "تيك أواي" : "TAKEAWAY";
   }
 
-  const receiptDesignStr = localStorage.getItem("receipt_design") || "{}";
-  const receiptDesign = JSON.parse(receiptDesignStr);
+  const receiptDesign = safeJSONParse("receipt_design", {});
 
   const design = {
     logo: receiptDesign.logo ?? 1,
@@ -70,7 +83,7 @@ const formatCashierReceipt = (receiptData) => {
   const restaurantLogo = localStorage.getItem("resturant_logo") || "";
 
   // ✅ جلب اسم الكاشير الصحيح (من localStorage أو من الـ response لو موجود)
-  const loggedCashier = JSON.parse(localStorage.getItem("user") || "{}");
+  const loggedCashier = safeJSONParse("user", {});
   const cashierName =
     receiptData.cashierName ||
     loggedCashier.name ||
@@ -599,8 +612,7 @@ const formatCustomerNumberReceipt = (receiptData) => {
   const isArabic = localStorage.getItem("language") === "ar";
   const restaurantLogo = localStorage.getItem("resturant_logo") || "";
 
-  const receiptDesignStr = localStorage.getItem("receipt_design") || "{}";
-  const receiptDesign = JSON.parse(receiptDesignStr);
+  const receiptDesign = safeJSONParse("receipt_design", {});
 
   // نستخدم نفس المنطق لتحديد النص الكبير زي الكيتشن (لكن هنا Take Away دائمًا)
   const displayBigNumber = isArabic ? "تيك أواي" : "Takeaway";
@@ -1710,16 +1722,22 @@ export const openCashDrawer = async () => {
 export const printReceiptSilently = async (receiptData, apiResponse, callback, options = {}) => {
   const { shouldSkipKitchenPrint = false } = options;
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  let cashierHtml = "";
   try {
-    const orderType = (receiptData.orderType || "").toLowerCase();
-    const cashierHtml = getReceiptHTML(receiptData, { design: "full", type: "cashier" });
+    const orderType = (receiptData?.orderType || "").toLowerCase();
+    cashierHtml = getReceiptHTML(receiptData, { design: "full", type: "cashier" });
+
+    const CASHIER_PRINTER =
+      localStorage.getItem("cashier_printer") ||
+      PRINTER_CONFIG?.cashier?.printerName ||
+      "XP-80C";
 
     const printJobs = []; // لـ QZ Tray
     const electronJobs = []; // لـ Electron
 
     // --- 1. منطق طباعة الكاشير ---
     // أ - النسخة الأساسية
-    electronJobs.push({ html: cashierHtml, type: "cashier" });
+    electronJobs.push({ html: cashierHtml, printerName: CASHIER_PRINTER, type: "cashier" });
 
     // ب - التحقق من النسخ الإضافية
     let shouldPrintDouble = false;
@@ -1732,13 +1750,13 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
     }
 
     if (shouldPrintDouble) {
-      electronJobs.push({ html: cashierHtml, type: "cashier" });
+      electronJobs.push({ html: cashierHtml, printerName: CASHIER_PRINTER, type: "cashier" });
     }
 
     // ج - ريسيت الرقم الصغير (للتيك أواي فقط)
     if (orderType.includes("take") && localStorage.getItem("printSmallTakeAway") !== "false") {
       const smallHtml = formatCustomerNumberReceipt(receiptData);
-      electronJobs.push({ html: smallHtml, type: "small" });
+      electronJobs.push({ html: smallHtml, printerName: CASHIER_PRINTER, type: "small" });
     }
 
     // --- 2. منطق طباعة المطبخ ---
@@ -1802,9 +1820,8 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
           const config = job.type === "kitchen" 
             ? qz.configs.create(job.printerName, { encoding: "UTF-8", rasterize: true }) 
             : cashierConfig;
-          printJobs.push(qz.print(config, [{ type: "html", format: "plain", data: job.html }]));
+          await qz.print(config, [{ type: "html", format: "plain", data: job.html }]);
         }
-        await Promise.all(printJobs);
 
         // ✅ فتح الدرج بعد طباعة الكاشير مباشرةً
         await openCashDrawer();
@@ -1877,7 +1894,9 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
         : "❌ فشل الطباعة، جاري تحميل الفاتورة بصيغة PDF..."
     );
     try {
-      await downloadReceiptPdf(receiptData, cashierHtml);
+      if (cashierHtml) {
+        await downloadReceiptPdf(receiptData, cashierHtml);
+      }
     } catch (pdfErr) {
       console.error("PDF fallback error:", pdfErr);
     }
