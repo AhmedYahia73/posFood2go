@@ -102,6 +102,7 @@ const formatCashierReceipt = (receiptData) => {
   <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
     <head>
       <meta charset="UTF-8">
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
@@ -111,17 +112,21 @@ const formatCashierReceipt = (receiptData) => {
         * {
           box-sizing: border-box;
           letter-spacing: normal !important;
+          word-spacing: normal !important;
         }
-        body {
+        html, body {
           margin: 0 !important;
           padding: 0 !important;
           width: 100% !important;
           background-color: #fff;
-          font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif !important;
+          font-family: 'Cairo', 'Segoe UI', Tahoma, 'Arial', sans-serif !important;
           color: #000;
           direction: ${isArabic ? "rtl" : "ltr"} !important;
           text-align: ${isArabic ? "right" : "left"};
           font-size: 12px;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
         }
         .container {
           width: 100% !important;
@@ -602,18 +607,32 @@ const formatCustomerNumberReceipt = (receiptData) => {
 
   return `
   <!DOCTYPE html>
-  <html>
+  <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
     <head>
       <meta charset="UTF-8">
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
       <style>
-        * { box-sizing: border-box; }
+        * { 
+          box-sizing: border-box; 
+          letter-spacing: normal !important;
+          word-spacing: normal !important;
+        }
         body, html { 
           width: 100%; 
           margin: 0; 
           padding: 10px 5px; 
-          font-family: 'Tahoma', sans-serif; 
-          direction: ${isArabic ? "rtl" : "ltr"}; 
+          font-family: 'Cairo', 'Segoe UI', Tahoma, 'Arial', sans-serif !important; 
+          direction: ${isArabic ? "rtl" : "ltr"} !important; 
+          text-align: ${isArabic ? "right" : "left"};
           font-size: 14px;
+          color: #000;
+          background: #fff;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
         }
 
         /* اللوجو في الأعلى (إذا مفعّل) */
@@ -798,12 +817,33 @@ const formatKitchenReceipt = (receiptData, productsList = []) => {
       : defaultTime;
 
   return `
-    <html>
+    <!DOCTYPE html>
+    <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
       <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
         <style>
-          * { box-sizing: border-box; }
-          body, html { width: 100%; margin: 0; padding: 0; font-family: 'Tahoma', sans-serif; direction: ${isArabic ? "rtl" : "ltr"
-    }; }
+          * { 
+            box-sizing: border-box; 
+            letter-spacing: normal !important;
+            word-spacing: normal !important;
+          }
+          body, html { 
+            width: 100%; 
+            margin: 0; 
+            padding: 0; 
+            font-family: 'Cairo', 'Segoe UI', Tahoma, 'Arial', sans-serif !important; 
+            direction: ${isArabic ? "rtl" : "ltr"} !important; 
+            text-align: ${isArabic ? "right" : "left"};
+            color: #000;
+            background: #fff;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+          }
           .header-box { border: 3px solid #000; display: flex; margin-bottom: 10px; min-height: 140px; }
           .cancelled-banner {
             background-color: #d00;
@@ -997,10 +1037,34 @@ ${receiptData.items
 // ===================================================================
 const formatBaristaReceipt = (receiptData) => {
   return `
-    <html>
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
       <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
         <style>
-          body, html { width: 58mm; margin: 0; padding: 5px; font-family: Arial, sans-serif; font-size: 10px; direction: rtl; }
+          * { 
+            box-sizing: border-box; 
+            letter-spacing: normal !important; 
+            word-spacing: normal !important; 
+          }
+          body, html { 
+            width: 58mm; 
+            margin: 0; 
+            padding: 5px; 
+            font-family: 'Cairo', 'Segoe UI', Tahoma, 'Arial', sans-serif !important; 
+            font-size: 10px; 
+            direction: rtl !important; 
+            text-align: right;
+            color: #000;
+            background: #fff;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+          }
           .center { text-align: center; }
           .line { border-top: 2px dashed black; margin: 5px 0; }
           .bold { font-weight: bold; }
@@ -1517,7 +1581,7 @@ export const printKitchenOnly = async (receiptData, apiResponse, callback) => {
       } else if (typeof qz !== "undefined" && qz.websocket.isActive()) {
         // طباعة عبر QZ Tray
         const printJobs = allHtmlToPrint.map((job) => {
-          const config = qz.configs.create(job.printerName);
+          const config = qz.configs.create(job.printerName, { encoding: "UTF-8", rasterize: true });
           return qz.print(config, [{ type: "html", format: "plain", data: job.html }]);
         });
         await Promise.all(printJobs);
@@ -1685,13 +1749,15 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
         electronJobs.push({ html: job.html, printerName: job.printerName, type: "kitchen" });
       }
     }
-    if (isMobile) {
-      // استخدام Web Bluetooth API بدلاً من RawBT
-      // مش هنحتاج الـ HTML هنا، هنبعت الـ receiptData الداتا الخام
-      await printViaWebBluetooth(receiptData);
-
-      if (callback) callback();
-      return; // توقف هنا عشان ما يكملش لكود الديسكتوب
+    if (isMobile && !window.electronAPI && (typeof qz === "undefined" || !qz.websocket?.isActive())) {
+      // استخدام Web Bluetooth API في حالة الموبايل فقط إذا لم يكن Electron أو QZ متاحاً
+      try {
+        await printViaWebBluetooth(receiptData);
+        if (callback) callback();
+        return;
+      } catch (btErr) {
+        console.warn("Web Bluetooth print failed, falling back:", btErr);
+      }
     }
     // --- 3. التنفيذ النهائي ---
     let printFailed = false;
@@ -1730,10 +1796,12 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
     } else if (typeof qz !== "undefined" && qz.websocket.isActive()) {
       try {
         const cashierPrinterName = await qz.printers.getDefault();
-        const cashierConfig = qz.configs.create(cashierPrinterName);
+        const cashierConfig = qz.configs.create(cashierPrinterName, { encoding: "UTF-8", rasterize: true });
 
         for (const job of electronJobs) {
-          const config = job.type === "kitchen" ? qz.configs.create(job.printerName) : cashierConfig;
+          const config = job.type === "kitchen" 
+            ? qz.configs.create(job.printerName, { encoding: "UTF-8", rasterize: true }) 
+            : cashierConfig;
           printJobs.push(qz.print(config, [{ type: "html", format: "plain", data: job.html }]));
         }
         await Promise.all(printJobs);
@@ -1753,11 +1821,49 @@ export const printReceiptSilently = async (receiptData, apiResponse, callback, o
         await downloadReceiptPdf(receiptData, cashierHtml);
       }
     } else {
+      // في حالة عدم توفر Electron أو QZ: نحاول الطباعة عبر المتصفح مباشرة + تحميل PDF
+      try {
+        const printFrame = document.createElement("iframe");
+        printFrame.style.position = "fixed";
+        printFrame.style.right = "-9999px";
+        printFrame.style.bottom = "-9999px";
+        printFrame.style.width = "340px";
+        printFrame.style.height = "600px";
+        printFrame.style.border = "none";
+        document.body.appendChild(printFrame);
+
+        const frameDoc = printFrame.contentWindow.document;
+        frameDoc.open();
+        frameDoc.write(cashierHtml);
+        frameDoc.close();
+
+        const triggerFramePrint = () => {
+          try {
+            printFrame.contentWindow.focus();
+            printFrame.contentWindow.print();
+          } catch (e) {
+            console.warn("Browser iframe print error:", e);
+          } finally {
+            setTimeout(() => {
+              if (printFrame.parentNode) document.body.removeChild(printFrame);
+            }, 1000);
+          }
+        };
+
+        if (frameDoc.fonts && frameDoc.fonts.ready) {
+          frameDoc.fonts.ready.then(triggerFramePrint).catch(triggerFramePrint);
+        } else {
+          setTimeout(triggerFramePrint, 300);
+        }
+      } catch (browserErr) {
+        console.warn("Browser print dialog failed:", browserErr);
+      }
+
       printFailed = true;
       toast.warn(
         receiptData.cashier_lang === "en"
-          ? "⚠️ No printer available, downloading invoice PDF..."
-          : "⚠️ لا توجد وسيلة طباعة متصلة، جاري تحميل الفاتورة بصيغة PDF..."
+          ? "⚠️ No direct POS service detected. Triggered print dialog and downloading PDF..."
+          : "⚠️ تم فتح نافذة الطباعة وجاري تحميل الفاتورة بصيغة PDF..."
       );
       await downloadReceiptPdf(receiptData, cashierHtml);
     }

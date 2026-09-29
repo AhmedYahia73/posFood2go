@@ -106,20 +106,32 @@ export default function FakeOrders() {
 
     return `
       <!DOCTYPE html>
-      <html>
+      <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
         <head>
           <meta charset="UTF-8">
+          <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
           <title>Print Order ${data.order_number}</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
           <style>
             @page { margin: 0; size: auto; }
+            * {
+              box-sizing: border-box;
+              letter-spacing: normal !important;
+              word-spacing: normal !important;
+            }
             body {
               margin: 0 !important; padding: 0 !important; width: 100% !important;
-              background-color: #fff; font-family: 'Tahoma', 'Arial', sans-serif;
-              color: #000; direction: ${isArabic ? "rtl" : "ltr"}; font-size: 12px;
+              background-color: #fff; font-family: 'Cairo', 'Segoe UI', Tahoma, 'Arial', sans-serif !important;
+              color: #000; direction: ${isArabic ? "rtl" : "ltr"} !important; text-align: ${isArabic ? "right" : "left"}; font-size: 12px;
+              -webkit-font-smoothing: antialiased;
+              -moz-osx-font-smoothing: grayscale;
+              text-rendering: optimizeLegibility;
             }
             .container { width: 100% !important; padding: 5px 2px; margin: 0; box-sizing: border-box; }
             .header { text-align: center; margin-bottom: 10px; }
-            .header h1 { font-size: 24px; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: 1px; }
+            .header h1 { font-size: 24px; font-weight: 900; margin: 0; letter-spacing: normal !important; }
             .header p { margin: 2px 0; font-size: 12px; color: #333; }
             .header .phone { font-weight: bold; font-size: 13px; margin-top: 2px;}
             .order-badge { border: 2px solid #000; background-color: #000; color: white; text-align: center; font-size: 18px; font-weight: 900; padding: 5px; margin: 5px 0; border-radius: 4px; }
@@ -299,9 +311,6 @@ export default function FakeOrders() {
               <p style="margin: 5px 0 0 0;">***</p>
             </div>
           </div>
-          <script>
-            window.onload = function() { window.focus(); window.print(); }
-          </script>
         </body>
       </html>
     `;
@@ -316,20 +325,60 @@ export default function FakeOrders() {
       );
       if (response?.data?.order_checkout) {
         const receiptHTML = generateReceiptHTML(response.data.order_checkout);
+
+        // 1. Electron support
+        if (window.electronAPI?.sendPrintOrder) {
+          await window.electronAPI.sendPrintOrder(receiptHTML);
+          toast.success(isArabic ? "✅ تم إرسال الطلب للطابعة" : "Print order sent");
+          setIsPrinting(false);
+          return;
+        }
+
+        // 2. QZ Tray support
+        if (typeof qz !== "undefined" && qz.websocket?.isActive()) {
+          const printerName = await qz.printers.getDefault();
+          const config = qz.configs.create(printerName, { encoding: "UTF-8", rasterize: true });
+          await qz.print(config, [{ type: "html", format: "plain", data: receiptHTML }]);
+          toast.success(isArabic ? "✅ تم إرسال الطلب للطابعة عبر QZ" : "Printed via QZ Tray");
+          setIsPrinting(false);
+          return;
+        }
+
+        // 3. Browser iframe printing fallback
         const iframe = document.createElement("iframe");
-        iframe.style.position = "absolute";
-        iframe.style.width = "0px";
-        iframe.style.height = "0px";
+        iframe.style.position = "fixed";
+        iframe.style.right = "-9999px";
+        iframe.style.bottom = "-9999px";
+        iframe.style.width = "340px";
+        iframe.style.height = "600px";
         iframe.style.border = "none";
         document.body.appendChild(iframe);
+
         const doc = iframe.contentWindow.document;
         doc.open();
         doc.write(receiptHTML);
         doc.close();
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-          setIsPrinting(false);
-        }, 2000);
+
+        const triggerPrint = () => {
+          try {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+          } catch (e) {
+            console.error("Print error:", e);
+          } finally {
+            setTimeout(() => {
+              if (iframe.parentNode) document.body.removeChild(iframe);
+              setIsPrinting(false);
+            }, 1000);
+          }
+        };
+
+        if (doc.fonts && doc.fonts.ready) {
+          doc.fonts.ready.then(triggerPrint).catch(triggerPrint);
+        } else {
+          setTimeout(triggerPrint, 350);
+        }
+
         toast.success(t("Preparingprint") || "جاري الطباعة...");
       }
     } catch (err) {

@@ -17,7 +17,7 @@ const InvoicePage = () => {
     };
 
     return (
-        <div className="p-8 max-w-2xl mx-auto bg-white" id="printable-invoice">
+        <div className="p-8 max-w-2xl mx-auto bg-white" id="printable-invoice" dir="rtl">
             {/* زر الطباعة - يختفي عند الطباعة الفعلية */}
             <div className="flex justify-end mb-6 no-print">
                 <button
@@ -189,6 +189,11 @@ const InvoicePage = () => {
             {/* CSS لإخفاء الأزرار عند الطباعة */}
             <style>{`
   @media print {
+    * {
+      letter-spacing: normal !important;
+      word-spacing: normal !important;
+    }
+
     /* إخفاء كل العناصر */
     body * {
       visibility: hidden;
@@ -197,6 +202,11 @@ const InvoicePage = () => {
     /* إظهار حاوية الفاتورة فقط */
     #printable-invoice, #printable-invoice * {
       visibility: visible;
+      font-family: 'Cairo', 'Segoe UI', Tahoma, 'Arial', sans-serif !important;
+      direction: rtl !important;
+      letter-spacing: normal !important;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
     }
 
     #printable-invoice {

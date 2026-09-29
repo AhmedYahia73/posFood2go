@@ -265,24 +265,77 @@ export default function Card({
 
     const printContents = printRef.current.innerHTML;
     const printWindow = window.open("", "_blank", "width=800,height=600");
+    if (!printWindow) return;
+
     printWindow.document.write(`
-    <html>
-      <head>
-        <title>Print Order</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 20px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { border: 1px solid #000; padding: 8px; text-align: left; }
-          th { background-color: #f0f0f0; }
-        </style>
-      </head>
-      <body>${printContents}</body>
-    </html>
-  `);
+      <!DOCTYPE html>
+      <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
+        <head>
+          <meta charset="UTF-8">
+          <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+          <title>${isArabic ? "ملخص الطلب" : "Print Order"}</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+          <style>
+            * {
+              box-sizing: border-box;
+              letter-spacing: normal !important;
+              word-spacing: normal !important;
+            }
+            body {
+              font-family: 'Cairo', 'Segoe UI', Tahoma, 'Arial', sans-serif !important;
+              padding: 20px;
+              direction: ${isArabic ? "rtl" : "ltr"} !important;
+              text-align: ${isArabic ? "right" : "left"};
+              color: #000;
+              background-color: #fff;
+              -webkit-font-smoothing: antialiased;
+              -moz-osx-font-smoothing: grayscale;
+              text-rendering: optimizeLegibility;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+              direction: ${isArabic ? "rtl" : "ltr"};
+            }
+            th, td {
+              border: 1px solid #000;
+              padding: 8px;
+              text-align: ${isArabic ? "right" : "left"};
+            }
+            th {
+              background-color: #f0f0f0;
+              font-weight: bold;
+            }
+          </style>
+        </head>
+        <body dir="${isArabic ? "rtl" : "ltr"}">
+          ${printContents}
+        </body>
+      </html>
+    `);
     printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
+
+    const doPrint = () => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch (e) {
+        console.error("Print error:", e);
+      } finally {
+        setTimeout(() => {
+          try { printWindow.close(); } catch (e) {}
+        }, 500);
+      }
+    };
+
+    if (printWindow.document.fonts && printWindow.document.fonts.ready) {
+      printWindow.document.fonts.ready.then(doPrint).catch(doPrint);
+    } else {
+      setTimeout(doPrint, 350);
+    }
   };
 
   const handleTransferToDineIn = () => {
@@ -655,31 +708,47 @@ export default function Card({
 
       <ToastContainer />
       <div style={{ display: "none" }}>
-        <div ref={printRef} className="print-area">
-          <h2 style={{ textAlign: "center" }}>Order Summary</h2>
+        <div ref={printRef} className="print-area" dir={isArabic ? "rtl" : "ltr"}>
+          <h2 style={{ textAlign: "center", marginBottom: "15px" }}>
+            {isArabic ? "ملخص الطلب" : "Order Summary"}
+          </h2>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={{ border: "1px solid #000", padding: "8px" }}>Product</th>
-                <th style={{ border: "1px solid #000", padding: "8px" }}>Price</th>
-                <th style={{ border: "1px solid #000", padding: "8px" }}>Total</th>
+                <th style={{ border: "1px solid #000", padding: "8px", textAlign: isArabic ? "right" : "left" }}>
+                  {isArabic ? "الصنف" : "Product"}
+                </th>
+                <th style={{ border: "1px solid #000", padding: "8px", textAlign: "center" }}>
+                  {isArabic ? "السعر" : "Price"}
+                </th>
+                <th style={{ border: "1px solid #000", padding: "8px", textAlign: "center" }}>
+                  {isArabic ? "الإجمالي" : "Total"}
+                </th>
               </tr>
             </thead>
             <tbody>
               {orderItems.map((item) => (
                 <tr key={item.temp_id}>
-                  <td style={{ border: "1px solid #000", padding: "8px" }}>{item.name}</td>
-                  <td style={{ border: "1px solid #000", padding: "8px" }}>{item.price.toFixed(2)}</td>
-                  <td style={{ border: "1px solid #000", padding: "8px" }}>{(item.price * item.quantity).toFixed(2)}</td>
+                  <td style={{ border: "1px solid #000", padding: "8px", textAlign: isArabic ? "right" : "left" }}>
+                    {isArabic ? (item.name_ar || item.nameAr || item.name) : (item.name_en || item.nameEn || item.name)}
+                  </td>
+                  <td style={{ border: "1px solid #000", padding: "8px", textAlign: "center" }}>
+                    {item.price.toFixed(2)}
+                  </td>
+                  <td style={{ border: "1px solid #000", padding: "8px", textAlign: "center" }}>
+                    {(item.price * (item.quantity || 1)).toFixed(2)}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <div style={{ marginTop: "10px", textAlign: "right" }}>
-            <p>Tax: {calculations.totalTax.toFixed(2)}</p>
-            <p>Service Fee: {calculations.totalOtherCharge.toFixed(2)}</p>
-            <p><strong>Total: {calculations.amountToPay.toFixed(2)}</strong></p>
+          <div style={{ marginTop: "15px", textAlign: isArabic ? "left" : "right" }}>
+            <p>{isArabic ? "الضريبة:" : "Tax:"} {calculations.totalTax.toFixed(2)}</p>
+            <p>{isArabic ? "رسوم الخدمة:" : "Service Fee:"} {calculations.totalOtherCharge.toFixed(2)}</p>
+            <p style={{ fontSize: "16px", marginTop: "5px" }}>
+              <strong>{isArabic ? "الإجمالي الكلي:" : "Total:"} {calculations.amountToPay.toFixed(2)}</strong>
+            </p>
           </div>
         </div>
       </div>

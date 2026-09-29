@@ -66,20 +66,37 @@ const PrintableReport = React.forwardRef(
       <div ref={ref} className="print-report-container" style={{ display: "none" }}>
         <style>
           {`
-            @media print {
-              @page { size: A4; margin: 15mm; }
-              * { box-sizing: border-box; -webkit-print-color-adjust: exact; color-adjust: exact; }
-              html, body { width: 100% !important; margin: 0 !important; padding: 0 !important; font-family: 'Tahoma', sans-serif; font-size: 13px; line-height: 1.6; direction: ${isArabic ? "rtl" : "ltr"}; background: white !important; color: black !important; }
+            @media all {
+              * { 
+                box-sizing: border-box; 
+                letter-spacing: normal !important; 
+                word-spacing: normal !important; 
+              }
+              html, body { 
+                width: 100% !important; 
+                margin: 0 !important; 
+                padding: 10px !important; 
+                font-family: 'Cairo', 'Segoe UI', Tahoma, 'Arial', sans-serif !important; 
+                font-size: 13px; 
+                line-height: 1.6; 
+                direction: ${isArabic ? "rtl" : "ltr"} !important; 
+                text-align: ${isArabic ? "right" : "left"};
+                background: white !important; 
+                color: black !important; 
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+                text-rendering: optimizeLegibility;
+              }
               .print-wrapper { width: 100% !important; max-width: 800px; margin: 0 auto; }
               
               /* Header */
               .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
-              .print-title { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
+              .print-title { font-size: 24px; font-weight: bold; margin-bottom: 10px; letter-spacing: normal !important; }
               .header-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: ${isArabic ? "right" : "left"}; font-size: 12px; }
               
               /* Sections */
               .print-section { margin-bottom: 20px; }
-              .section-title { font-size: 16px; font-weight: bold; background: #f0f0f0 !important; padding: 5px 10px; border: 1px solid #000; margin-bottom: 10px; text-transform: uppercase; }
+              .section-title { font-size: 16px; font-weight: bold; background: #f0f0f0 !important; padding: 5px 10px; border: 1px solid #000; margin-bottom: 10px; letter-spacing: normal !important; }
               
               /* Rows */
               .data-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #ccc; }
@@ -94,6 +111,10 @@ const PrintableReport = React.forwardRef(
               .totals-box { border: 2px solid #000; padding: 15px; margin-top: 20px; }
               .totals-row { display: flex; justify-content: space-between; font-size: 15px; font-weight: bold; padding: 5px 0; }
               .totals-note { font-size: 11px; font-weight: normal; color: #555 !important; }
+            }
+            @media print {
+              @page { size: A4; margin: 15mm; }
+              * { -webkit-print-color-adjust: exact; color-adjust: exact; letter-spacing: normal !important; }
             }
           `}
         </style>
@@ -282,28 +303,46 @@ export default function EndShiftReportModal({
     const printContent = printRef.current;
     if (!printContent) return;
 
-    const printWindow = window.open("", "_blank", "width=800,height=800");
+    const printWindow = window.open("", "_blank", "width=850,height=900");
+    if (!printWindow) return;
+
     printWindow.document.write(`
       <!DOCTYPE html>
-      <html dir="${isArabic ? "rtl" : "ltr"}">
+      <html dir="${isArabic ? "rtl" : "ltr"}" lang="${isArabic ? "ar" : "en"}">
       <head>
         <meta charset="UTF-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>${t("EndShiftReport")}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
       </head>
-      <body>
+      <body dir="${isArabic ? "rtl" : "ltr"}">
         ${printContent.innerHTML}
       </body>
       </html>
     `);
 
     printWindow.document.close();
-    printWindow.onload = () => {
-      printWindow.focus();
-      setTimeout(() => {
+
+    const doPrint = () => {
+      try {
+        printWindow.focus();
         printWindow.print();
-        printWindow.close();
-      }, 500);
+      } catch (e) {
+        console.error("Print error:", e);
+      } finally {
+        setTimeout(() => {
+          try { printWindow.close(); } catch (e) {}
+        }, 500);
+      }
     };
+
+    if (printWindow.document.fonts && printWindow.document.fonts.ready) {
+      printWindow.document.fonts.ready.then(doPrint).catch(doPrint);
+    } else {
+      setTimeout(doPrint, 400);
+    }
   };
 
   return (
