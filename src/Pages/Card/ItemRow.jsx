@@ -4,7 +4,7 @@ import { usePost } from "@/Hooks/usePost";
 import { PREPARATION_STATUSES } from "./constants";
 import { Trash2, Timer, Square } from "lucide-react";
 import ProductDetailModalWrapper from "./ProductDetailModalWrapper";
-import { calculateItemUnitPrice } from "../utils/orderPriceUtils";
+import { calculateItemUnitPrice, isSizeVariation } from "../utils/orderPriceUtils";
 import {
   calculateProductTimePrice,
   elapsedMinutes,
@@ -117,12 +117,7 @@ const ItemRow = ({
     item.variations.forEach((variation, idx) => {
       const selectedId = variation.selected_option_id;
       if (selectedId === null || selectedId === undefined) return;
-      const variationName = (variation.name || "").toLowerCase();
-      const isSize =
-        variationName.includes("size") ||
-        variationName.includes("حجم") ||
-        variationName.includes("maqas") ||
-        variationName.includes("مقاس");
+      const isSize = isSizeVariation(variation);
       if (variation.type === "single" || !variation.type) {
         const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
         ids.forEach((optId) => {
@@ -132,7 +127,7 @@ const ItemRow = ({
           const optDiscount = Number(opt.discount_val || 0);
           if (optDiscount > 0) hasDiscount = true;
           const totalOptPrice = Number(opt.total_option_price || 0);
-          if (totalOptPrice > 0 && !item.is_group_priced) {
+          if (isSize && totalOptPrice > 0 && !item.is_group_priced) {
             unitBasePrice = totalOptPrice;
           } else if (isSize && !item.is_group_priced) {
             const sizePrice = Number(opt.final_price || opt.price_after_tax || 0);

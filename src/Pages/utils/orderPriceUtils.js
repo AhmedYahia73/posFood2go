@@ -2,6 +2,12 @@
  * calculateItemUnitPrice
  * النسخة المُحدثة - الاعتماد على final_price من الباك إند
  */
+export const isSizeVariation = (variation) => {
+  if (!variation?.name) return false;
+  const name = variation.name.toLowerCase();
+  return name.includes("size") || name.includes("حجم") || name.includes("maqas") || name.includes("مقاس");
+};
+
 export const calculateItemUnitPrice = (baseProduct, selectedVariation = {}, selectedExtras = null) => {
   const isTaxIncluded = 
     baseProduct?.taxes === "included" || 

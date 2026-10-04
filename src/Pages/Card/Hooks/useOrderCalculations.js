@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { statusOrder } from "../constants";
+import { isSizeVariation } from "../../utils/orderPriceUtils";
 
 export function useOrderCalculations(
   orderItems,
@@ -310,7 +311,7 @@ export function useOrderCalculations(
           optionsList.forEach(opt => {
             const optionData = variationGroup.options?.find(o => String(o.id) === String(opt.id));
             if (optionData) {
-              if (optionData.total_option_price > 0 && variationGroup.type === 'single') {
+              if (isSizeVariation(variationGroup) && optionData.total_option_price > 0 && variationGroup.type === 'single') {
                 itemBasePrice = parseFloat(optionData.total_option_price);
               } else {
                 const optP = isItemTaxInc

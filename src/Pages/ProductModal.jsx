@@ -10,17 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Minus, Plus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useTranslation } from "react-i18next";
-import { calculateItemUnitPrice } from './utils/orderPriceUtils';
+import { calculateItemUnitPrice, isSizeVariation } from './utils/orderPriceUtils';
 
 // Helper function to calculate total price including variations, extras, and addons
-// --- 1. دالة مساعدة لمعرفة هل المتغير هو "حجم" (Size) أم لا ---
-const isSizeVariation = (variation) => {
-  if (!variation || !variation.name) return false;
-  const name = variation.name.toLowerCase();
-  // نفحص الكلمات الدلالية للحجم بالعربي والإنجليزي
-  return name.includes('size') || name.includes('حجم') || name.includes('maqas') || name.includes('مقاس');
-};
-
 // ✅ تحديث دالة المقارنة لتشمل الـ Addons
 export const areProductsEqual = (product1, product2) => {
   // منتجات الوقت (product_time) لا تدمج أبداً لأن كل واحدة لها عداد وزر إنهاء منفصل
@@ -111,7 +103,7 @@ const ProductModal = ({
           if (isWeightOption) {
             const enteredWeight = typeof selected === "object" ? parseFloat(selected.value) || 0 : 0;
             variationPrice += parseFloat(opt.price || 0) * enteredWeight;
-          } else if (opt.total_option_price > 0) {
+          } else if (isSizeVariation(v) && opt.total_option_price > 0) {
             basePrice = parseFloat(opt.total_option_price);
           } else {
             const optPrice = isTaxIncluded
@@ -268,7 +260,7 @@ const ProductModal = ({
     let priceToDisplay = 0;
 
     // إذا كان هناك سعر كلي للخيار، نعرضه كقيمة مطلقة
-    if (option.total_option_price > 0 || isSizeVariation(variation)) {
+    if (isSizeVariation(variation)) {
       priceToDisplay = isTaxIncluded
         ? parseFloat(option.total_option_price || option.final_price || 0)
         : parseFloat(option.total_option_price || (parseFloat(option.price || 0) + parseFloat(selectedProduct.price_after_discount || selectedProduct.price || 0)));

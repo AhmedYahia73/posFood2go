@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { isSizeVariation } from "../Pages/utils/orderPriceUtils";
 
 export const useProductModal = () => {
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -247,7 +248,7 @@ export const useProductModal = () => {
             if (isWeightOption) {
               const enteredWeight = typeof selected === "object" ? parseFloat(selected.value) || 0 : 0;
               variationCharges += parseFloat(opt.price || 0) * enteredWeight;
-            } else if (opt.total_option_price > 0) {
+            } else if (isSizeVariation(v) && opt.total_option_price > 0) {
               currentPrice = parseFloat(opt.total_option_price);
             } else {
               const optPrice = isTaxIncluded
