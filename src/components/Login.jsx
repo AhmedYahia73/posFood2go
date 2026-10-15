@@ -10,6 +10,7 @@ import axios from "axios";
 import { messaging } from "../firebase";
 import { getToken } from "firebase/messaging";
 import { useTranslation } from "react-i18next";
+import { ensureBranchAddress } from "@/Pages/utils/branchAddressHelper";
 
 export default function LoginPage() {
   const [user_name, setUserName] = useState("");
@@ -134,6 +135,8 @@ export default function LoginPage() {
         branchAddress = cashierData.branch.address || branchAddress;
         branchPhone = cashierData.branch.phone || branchPhone;
         receiptFooter = cashierData.branch.receipt_footer || receiptFooter;
+        if (cashierData.branch.latitude) localStorage.setItem("branch_latitude", String(cashierData.branch.latitude));
+        if (cashierData.branch.longitude) localStorage.setItem("branch_longitude", String(cashierData.branch.longitude));
       }
       // الاحتمال الثاني: البيانات موجودة مباشرة في الـ cashier object
       else {
@@ -150,6 +153,8 @@ export default function LoginPage() {
       localStorage.setItem("restaurant_address", branchAddress);
       localStorage.setItem("restaurant_phone", branchPhone);
       // localStorage.setItem("receipt_footer", receiptFooter);
+      localStorage.removeItem("branch_address_resolved");
+      ensureBranchAddress();
 
       setTimeout(() => {
         navigate("/cashier", { replace: true });

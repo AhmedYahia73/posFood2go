@@ -34,6 +34,7 @@ import {
   prepareReceiptData,
   printReceiptSilently,
 } from "../utils/printReceipt";
+import { ensureBranchAddress } from "../utils/branchAddressHelper";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 const CheckOut = ({
@@ -594,6 +595,7 @@ const CheckOut = ({
 
         // 🟢 نجاح العملية (زي ما هو)
         toast.success(due === 1 ? t("DueOrderCreated") : t("OrderPlaced"));
+        ensureBranchAddress();
 
         if (due === 0) {
           const receiptData = prepareReceiptData(
@@ -1069,6 +1071,7 @@ const CheckOut = ({
                     });
                     if (response?.success) {
                       toast.success(t("OrderPlaced"));
+                      ensureBranchAddress();
                       const receiptData = prepareReceiptData(
                         data.itemsForPayload,
                         data.discountedAmount,

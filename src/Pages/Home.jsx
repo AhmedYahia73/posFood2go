@@ -7,6 +7,7 @@ import { usePost } from "@/Hooks/usePost";
 import { useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { useTranslation } from "react-i18next";
+import { ensureBranchAddress } from "@/Pages/utils/branchAddressHelper";
 
 const getInitialState = () => {
   const storedOrderType = localStorage.getItem("order_type") || "take_away";
@@ -55,6 +56,10 @@ export default function Home() {
       return hasChanged ? newState : prevState;
     });
   }, [initialState]);
+
+  useEffect(() => {
+    ensureBranchAddress();
+  }, []);
 
   // ✅ FIXED: Handle repeated orders from SinglePage and Delivery
   useEffect(() => {

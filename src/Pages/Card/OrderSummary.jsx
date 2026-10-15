@@ -1013,8 +1013,8 @@ export default function OrderSummary({
                 </button>
               );
             })()}
-            {/* Print Button - يظهر في الـ Dine-in أو الـ Take-away */}
-            {(orderType === "dine_in" || orderType === "take_away") && orderItemsLength > 0 && (
+            {/* Print Button - يظهر فقط في الـ Dine-in */}
+            {orderType === "dine_in" && orderItemsLength > 0 && (
               <Button
                 onClick={handlePrint}
                 variant="outline"
