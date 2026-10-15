@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePost } from "@/Hooks/usePost";
 import { PREPARATION_STATUSES } from "./constants";
-import { Trash2, Timer, Square } from "lucide-react";
+import { Trash2, Timer, Square, Loader2 } from "lucide-react";
 import ProductDetailModalWrapper from "./ProductDetailModalWrapper";
 import { calculateItemUnitPrice, isSizeVariation } from "../utils/orderPriceUtils";
 import {
@@ -459,14 +459,19 @@ const ItemRow = ({
       {/* Delete */}
       <td className="p-2 text-center align-top">
         <button
+          disabled={!!itemLoadingStates?.[item.temp_id]}
           onClick={() =>
             orderType === "dine_in"
               ? handleVoidItem(item.temp_id)
               : handleRemoveFrontOnly(item.temp_id)
           }
-          className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors"
+          className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors disabled:opacity-50"
         >
-          <Trash2 size={18} />
+          {itemLoadingStates?.[item.temp_id] ? (
+            <Loader2 size={18} className="animate-spin text-red-500" />
+          ) : (
+            <Trash2 size={18} />
+          )}
         </button>
       </td>
     </tr>

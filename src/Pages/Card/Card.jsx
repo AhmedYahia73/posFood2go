@@ -34,6 +34,7 @@ import { OTHER_CHARGE } from "./constants";
 import { useServiceFee } from "./Hooks/useServiceFee";
 import DineInformation from "./DineInformation";
 import { useGet } from "@/Hooks/useGet";
+import axiosInstance from "@/Pages/utils/axiosInstance";
 export default function Card({
   orderItems,
   updateOrderItems,
@@ -193,8 +194,27 @@ export default function Card({
     );
 
     if (orderType === "dine_in" && needsManager) {
-      // حالة تتطلب مدير (وجود عناصر قيد التحضير)
-      setShowClearAllManagerModal(true);
+      const checkAndClear = async () => {
+        try {
+          const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "";
+          const baseUrl = rawBaseUrl.trim().replace(/\/?$/, "/");
+          const token = localStorage.getItem("token");
+          const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+          const res = await axiosInstance.get(`${baseUrl}cashier/check_void_permission`, { headers });
+          const canVoid = res?.data?.can_void;
+
+          if (canVoid === true || canVoid === 1 || canVoid === "1") {
+            confirmClearAllWithManager("", "");
+            return;
+          }
+        } catch (e) {
+          console.error("Error checking void permission for clear all:", e);
+        }
+        setShowClearAllManagerModal(true);
+      };
+
+      checkAndClear();
     } else if (orderItems.some(item => item.cart_id)) {
       // حالة لا تتطلب مدير ولكن العناصر موجودة على السيرفر (كلها Waiting/Pending)
       // سنقوم باستدعاء دالة المسح مباشرة ببيانات فارغة للمدير
@@ -478,10 +498,41 @@ export default function Card({
             const status = item?.preparation_status || "pending";
             const hasCartId = !!item?.cart_id;
 
-            // 1. إذا كان المنتج "قيد التحضير" أو "تم" -> اطلب صلاحية مدير
+            // 1. إذا كان المنتج "قيد التحضير" أو "تم" -> فحص صلاحية can_void من الـ API
             if (orderType === "dine_in" && ["preparing", "pick_up", "done"].includes(status)) {
-              setVoidItemId(itemId);
-              setShowVoidModal(true);
+              const checkPermissionAndVoid = async () => {
+                setItemLoadingStates((prev) => ({ ...prev, [itemId]: true }));
+                try {
+                  const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "";
+                  const baseUrl = rawBaseUrl.trim().replace(/\/?$/, "/");
+                  const token = localStorage.getItem("token");
+                  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+                  const res = await axiosInstance.get(
+                    `${baseUrl}cashier/check_void_permission`,
+                    { headers }
+                  );
+                  const canVoid = res?.data?.can_void;
+
+                  // لو can_void = true: ميفتحش المودال ويحذف مباشرة
+                  if (canVoid === true || canVoid === 1 || canVoid === "1") {
+                    await orderActions.confirmVoidItem(itemId, null, null, () => {});
+                  } else {
+                    // لو can_void = false: يفتح مودال مصادقة المدير ولازم يدخله
+                    setVoidItemId(itemId);
+                    setShowVoidModal(true);
+                  }
+                } catch (error) {
+                  console.error("Error checking void permission:", error);
+                  // في حالة حدوث خطأ في الاتصال، فتح المودال كإجراء احتياطي
+                  setVoidItemId(itemId);
+                  setShowVoidModal(true);
+                } finally {
+                  setItemLoadingStates((prev) => ({ ...prev, [itemId]: false }));
+                }
+              };
+
+              checkPermissionAndVoid();
             }
             // 2. إذا كان المنتج "Waiting/Pending" وموجود في السيرفر (له cart_id) -> احذف من الـ API مباشرة بدون كلمة سر
             else if (hasCartId) {
